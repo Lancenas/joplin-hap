@@ -66,6 +66,12 @@ export function trimSlashes(s: string): string {
 }
 
 // Joplin Server addresses items by their "root:/<id><ext>:" pseudo-path.
+// The delta endpoint is `api/items/root:/:/delta` — the id is empty but the
+// trailing colon is REQUIRED because the server route `api/items/:id/delta`
+// matches `:id` greedily up to the last `/delta`, and the change-model parser
+// expects the format to be `root:<inner-path>`. With an empty inner path the
+// full id becomes "root:/:" (no extra slash).
+export const DELTA_PATH = 'api/items/root:/:/delta';
 export function apiFilePath(id: string, ext: string): string {
   return `api/items/root:/${id}${ext}:`;
 }

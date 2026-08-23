@@ -10,7 +10,7 @@
 // ArkTS notes: object literals need a declared type and cannot use computed or
 // quoted keys, and destructuring declarations are rejected — hence the classes
 // and the explicit index access below.
-import { JoplinApi, HeaderMap, QueryMap, apiFilePath, TEXT_MIME } from './JoplinApi';
+import { JoplinApi, HeaderMap, QueryMap, apiFilePath, DELTA_PATH, TEXT_MIME } from './JoplinApi';
 import {
   DeserializedItem, PropRecord, recordToFolder, recordToNote, recordToTag,
   serializeFolder, serializeNote, serializeNoteTag, serializeTag, unserializeItem
@@ -284,7 +284,7 @@ export class Synchronizer {
       if (cursor !== '') {
         q['cursor'] = cursor;
       }
-      const res = await this.api.exec('GET', 'api/items/root:/delta', q);
+      const res = await this.api.exec('GET', DELTA_PATH, q);
       const parsed: DeltaResponse = parseDelta(res.body);
       const items: DeltaItem[] = parsed.items ?? [];
       totalKnown += items.length;

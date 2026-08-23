@@ -140,6 +140,35 @@ log "buildMode=${BUILD_MODE}）..."   # ✓
 
 某些 locale 下 bash 会把多字节字符当成变量名的一部分。中文提示信息里的变量一律用 `${}` 包起来。
 
+### 7. Delta 端点路径 `root:/delta` 被服务端拒绝
+
+```
+Sync failed: {"error":"Invalid path format: root:/delta"}
+```
+
+server 路由定义（`packages/server/src/routes/api/items.ts:205`）：
+
+```ts
+router.get('api/items/:id/delta', async (_path, ctx) => {
+  return changeModel.delta(ctx.joplin.owner.id, requestDeltaPagination(ctx.query));
+});
+```
+
+`:id` 段必须形如 `root:<inner-path>:`（以 `root:` 开头、`:` 结尾），server 会用第二个 `:` 切分出 inner-path 然后去 lookup。**当 inner-path 为空时，合法 id 是 `root:/:`**（一个 `root:`、一个 `/`、一个 `:`），不是 `root:/`。
+
+官方 client (`file-api-driver-joplinServer.ts:85,105`) 的写法：
+
+```ts
+private apiFilePath_(p: string) {
+  return `api/items/root:/${trimSlashes(p)}:`;   // p 为空 → 'api/items/root:/:'
+}
+public async delta(path: string, ...) {
+  return this.api().exec('GET', `${this.apiFilePath_(path)}/delta`, query);
+}
+```
+
+也就是 delta 的真实端点是 `api/items/root:/:/delta`，中间两个冒号。本项目修了 `JoplinApi.DELTA_PATH` 常量统一使用。
+
 ---
 
 ## ArkTS 严格模式限制备忘
