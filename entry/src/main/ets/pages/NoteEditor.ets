@@ -19,13 +19,12 @@ struct NoteEditor {
   @State attachedTags: string[] = [];
   @State status: string = '';
   @State previewLoading: boolean = false;
+  @State previewSrc: string = 'about:blank';
   @State selStart: number = 0;
   @State selEnd: number = 0;
 
   private noteId: string = '';
   private webController: webview.WebviewController = new webview.WebviewController();
-  private webReady: boolean = false;
-  private previewHtml: string = '';
   private textController: TextAreaController = new TextAreaController();
 
   aboutToAppear(): void {
@@ -124,24 +123,21 @@ struct NoteEditor {
       if (this.showPreview) {
         // Web 渲染真正的 Markdown（标题/加粗/列表/代码块/图片等）
         Stack() {
-          Web({ src: 'about:blank', controller: this.webController })
-            .javaScriptAccess(true)
-            .domStorageAccess(true)
-            .imageAccess(true)
-            .fileAccess(true)
-            .onlineImageAccess(true)
-            .layoutWeight(1)
-            .width('100%')
-            .onControllerAttached(() => {
-              this.webReady = true;
-              console.info('[joplin-hap] web controller attached');
-              if (this.previewHtml !== '') {
-                this.webController.loadData(this.previewHtml, 'text/html', 'utf-8');
-              }
-            })
-            .onPageEnd(() => {
-              console.info('[joplin-hap] web preview page loaded');
-            })
+          // 只在拿到真实 data URL 后才创建 Web（src 直接是内容），彻底避开
+          // 「src=about:blank 初始导航把 loadData 冲掉（ERR_ABORTED）」的竞态。
+          if (this.previewSrc !== 'about:blank') {
+            Web({ src: this.previewSrc, controller: this.webController })
+              .javaScriptAccess(true)
+              .domStorageAccess(true)
+              .imageAccess(true)
+              .fileAccess(true)
+              .onlineImageAccess(true)
+              .layoutWeight(1)
+              .width('100%')
+              .onPageEnd(() => {
+                console.info('[joplin-hap] web preview page loaded');
+              })
+          }
           if (this.previewLoading) {
             Column() {
               LoadingProgress().width(36).height(36)
@@ -331,6 +327,8 @@ struct NoteEditor {
   // 再套 previewTemplate 的样式，最后交给 Web 组件。
   private renderPreview(): void {
     this.previewLoading = true;
+    // 重置为占位，让 Web 先卸载，等内容就绪后再以真实 data URL 重建。
+    this.previewSrc = 'about:blank';
     const rawHtml: string = this.body === ''
       ? '<p style="color:#9A9A9A">该笔记暂无内容</p>'
       : markdownToHtml(this.body);
@@ -338,20 +336,17 @@ struct NoteEditor {
     console.info(`[joplin-hap] renderPreview: body ${this.body.length} chars, html ${rawHtml.length} chars, hasResourceImg=${hasImg}`);
     resolveImagesInHtml(rawHtml)
       .then((resolved: string) => {
-        this.previewHtml = previewTemplate(resolved);
+        const full: string = previewTemplate(resolved);
         this.previewLoading = false;
-        console.info(`[joplin-hap] renderPreview: resolved html ${this.previewHtml.length} chars, webReady=${this.webReady}`);
-        if (this.webReady) {
-          this.webController.loadData(this.previewHtml, 'text/html', 'utf-8');
-        }
+        // 响应式 src：Web 组件检测到 src 变化会重新导航，无需 loadData。
+        this.previewSrc = 'data:text/html;charset=utf-8,' + encodeURIComponent(full);
+        console.info(`[joplin-hap] renderPreview: resolved html ${full.length} chars, previewSrc set (${this.previewSrc.length} chars)`);
       })
       .catch((e: Error) => {
         console.warn(`[joplin-hap] renderPreview resolve failed: ${e.message}`);
-        this.previewHtml = previewTemplate(rawHtml);
+        const fallback: string = previewTemplate(rawHtml);
         this.previewLoading = false;
-        if (this.webReady) {
-          this.webController.loadData(this.previewHtml, 'text/html', 'utf-8');
-        }
+        this.previewSrc = 'data:text/html;charset=utf-8,' + encodeURIComponent(fallback);
       });
   }
 
