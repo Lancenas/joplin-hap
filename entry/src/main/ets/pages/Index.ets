@@ -1,4 +1,5 @@
 import router from '@ohos.router';
+import { I18n } from '../common/I18n';
 import { AppStore, appStore } from '../viewmodel/AppStore';
 import { NoteRouteParams } from '../viewmodel/RouteParams';
 import { Folder, Note, Tag, newFolder, newNote } from '../core/models/Entities';
@@ -18,7 +19,7 @@ struct Index {
   }
 
   onPageShow(): void {
-    // Coming back from the editor / settings page: pick up any changes.
+    // 从编辑器或设置页返回后刷新一次，把外部改动接进 UI。
     this.reload();
   }
 
@@ -30,6 +31,7 @@ struct Index {
 
   build() {
     Column() {
+      // 顶栏
       Row() {
         if (!this.showSidebar) {
           Button('☰')
@@ -41,11 +43,15 @@ struct Index {
             .margin({ right: 8 })
             .onClick(() => { this.showSidebar = true; })
         }
-        Text('Joplin HAP')
+        Text(I18n.appTitle)
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .layoutWeight(1)
-        Button('Sync')
+        Text(I18n.appSubtitle)
+          .fontSize(11)
+          .fontColor('#9A9A9A')
+          .margin({ right: 8 })
+        Button(I18n.tabSettings)
           .height(32)
           .fontSize(13)
           .margin({ left: 8 })
@@ -58,6 +64,7 @@ struct Index {
       .padding({ left: 12, right: 12, top: 10, bottom: 10 })
       .backgroundColor('#FFFFFF')
 
+      // 主内容
       Row() {
         if (this.showSidebar) {
           this.sideBar()
@@ -77,8 +84,9 @@ struct Index {
   @Builder
   sideBar() {
     Column() {
+      // 笔记本分组
       Row() {
-        Text('Notebooks')
+        Text(I18n.notebooksTitle)
           .fontSize(12)
           .fontColor('#6B6B6B')
           .layoutWeight(1)
@@ -104,7 +112,7 @@ struct Index {
       List({ space: 2 }) {
         ListItem() {
           Row() {
-            Text('All notes')
+            Text(I18n.notesTitle)
               .layoutWeight(1)
               .fontSize(14)
               .fontWeight(this.store.selectedFolderId === '' && this.store.selectedTagId === ''
@@ -123,7 +131,7 @@ struct Index {
         ForEach(this.store.folders, (folder: Folder) => {
           ListItem() {
             Row() {
-              Text(folder.title === '' ? 'Untitled' : folder.title)
+              Text(folder.title === '' ? I18n.untitledNotebook : folder.title)
                 .layoutWeight(1)
                 .fontSize(14)
                 .maxLines(1)
@@ -146,7 +154,8 @@ struct Index {
 
       Divider().color('#E1E4E8')
 
-      Text('Tags')
+      // 标签分组
+      Text(I18n.tagsTitle)
         .fontSize(12)
         .fontColor('#6B6B6B')
         .width('100%')
@@ -184,14 +193,14 @@ struct Index {
   createFolderDialog() {
     Column() {
       Column() {
-        Text('New notebook')
+        Text(I18n.newNotebook)
           .fontSize(18)
           .fontWeight(FontWeight.Medium)
           .margin({ bottom: 12 })
-        TextInput({ placeholder: 'Notebook name', text: this.newFolderTitle })
+        TextInput({ placeholder: I18n.newNotebook, text: this.newFolderTitle })
           .onChange((v: string) => { this.newFolderTitle = v; })
         Row() {
-          Button('Cancel')
+          Button(I18n.cancel)
             .backgroundColor('#EEF1F5')
             .fontColor('#3C3C3C')
             .onClick(() => {
@@ -199,7 +208,7 @@ struct Index {
               this.showCreateFolder = false;
             })
           Blank()
-          Button('Create')
+          Button(I18n.confirm)
             .onClick(() => { this.createFolder(); })
         }
         .width('100%')
@@ -227,7 +236,7 @@ struct Index {
           .layoutWeight(1)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-        Button('Search')
+        Button(I18n.search)
           .height(32)
           .fontSize(13)
           .backgroundColor('#EEF1F5')
@@ -242,10 +251,10 @@ struct Index {
 
       if (this.store.notes.length === 0) {
         Column() {
-          Text('No notes yet')
+          Text(I18n.noNotes)
             .fontSize(16)
             .fontColor('#6B6B6B')
-          Text('Tap "New note" to start writing.')
+          Text(I18n.createFirstNote)
             .fontSize(13)
             .fontColor('#9A9A9A')
             .margin({ top: 8 })
@@ -269,7 +278,7 @@ struct Index {
 
       Row() {
         Blank()
-        Button('+ New note')
+        Button(`+ ${I18n.newNote}`)
           .onClick(() => { this.createNote(); })
       }
       .width('100%')
@@ -282,7 +291,7 @@ struct Index {
   @Builder
   noteRow(note: Note) {
     Column() {
-      Text(note.title === '' ? 'Untitled' : note.title)
+      Text(note.title === '' ? I18n.untitled : note.title)
         .fontSize(16)
         .fontWeight(FontWeight.Medium)
         .width('100%')
@@ -336,7 +345,7 @@ struct Index {
   }
 
   private createNote(): void {
-    const note: Note = newNote(this.store.selectedFolderId, 'Untitled', '');
+    const note: Note = newNote(this.store.selectedFolderId, I18n.untitled, '');
     noteRepo.upsert(note)
       .then(() => {
         this.openNote(note.id);

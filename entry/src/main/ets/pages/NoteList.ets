@@ -1,4 +1,5 @@
 import router from '@ohos.router';
+import { I18n } from '../common/I18n';
 import { Note } from '../core/models/Entities';
 import { noteRepo, tagRepo } from '../core/services/Repositories';
 import { NoteRouteParams, TagRouteParams } from '../viewmodel/RouteParams';
@@ -7,7 +8,7 @@ import { NoteRouteParams, TagRouteParams } from '../viewmodel/RouteParams';
 @Component
 struct NoteList {
   @State notes: Note[] = [];
-  @State title: string = 'Notes';
+  @State title: string = I18n.notesTitle;
 
   private tagId: string = '';
 
@@ -37,7 +38,7 @@ struct NoteList {
   build() {
     Column() {
       Row() {
-        Button('← Back')
+        Button(`← ${I18n.back}`)
           .height(32)
           .fontSize(13)
           .backgroundColor('#EEF1F5')
@@ -56,7 +57,7 @@ struct NoteList {
 
       if (this.notes.length === 0) {
         Column() {
-          Text('No notes here yet.')
+          Text(I18n.noNotes)
             .fontSize(13)
             .fontColor('#6B6B6B')
         }
@@ -68,7 +69,7 @@ struct NoteList {
           ForEach(this.notes, (n: Note) => {
             ListItem() {
               Column() {
-                Text(n.title === '' ? 'Untitled' : n.title)
+                Text(n.title === '' ? I18n.untitled : n.title)
                   .fontSize(16)
                   .fontWeight(FontWeight.Medium)
                   .width('100%')

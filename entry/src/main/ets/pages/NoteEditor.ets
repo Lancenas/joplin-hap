@@ -1,4 +1,5 @@
 import router from '@ohos.router';
+import { I18n } from '../common/I18n';
 import { Note, Tag, newTag } from '../core/models/Entities';
 import { noteRepo, noteTagRepo, tagRepo } from '../core/services/Repositories';
 import { markdownToPlainText } from '../core/markdown/MarkdownRenderer';
@@ -25,7 +26,7 @@ struct NoteEditor {
   }
 
   onBackPress(): boolean {
-    // Persist silently so a back-swipe never loses the user's typing.
+    // 系统返回手势触发静默保存，避免编辑内容丢失。
     this.save();
     return false;
   }
@@ -37,7 +38,7 @@ struct NoteEditor {
     noteRepo.get(this.noteId)
       .then((n: Note | null) => {
         if (n === null) {
-          this.status = 'Note not found';
+          this.status = I18n.editorNoBody;
           return;
         }
         this.note = n;
@@ -45,7 +46,7 @@ struct NoteEditor {
         this.title = n.title;
         this.refreshTags();
       })
-      .catch((e: Error) => { this.status = `Load failed: ${e.message}`; });
+      .catch((e: Error) => { this.status = `${I18n.errorTitle}：${e.message}`; });
   }
 
   private refreshTags(): void {
@@ -62,8 +63,9 @@ struct NoteEditor {
 
   build() {
     Column() {
+      // 顶栏
       Row() {
-        Button('← Back')
+        Button(`← ${I18n.back}`)
           .height(32)
           .fontSize(13)
           .backgroundColor('#EEF1F5')
@@ -73,14 +75,14 @@ struct NoteEditor {
             router.back();
           })
         Blank()
-        Button(this.showPreview ? 'Edit' : 'Preview')
+        Button(this.showPreview ? I18n.editorEdit : I18n.editorPreview)
           .height(32)
           .fontSize(13)
           .backgroundColor('#EEF1F5')
           .fontColor('#1F58B8')
           .margin({ right: 8 })
           .onClick(() => { this.showPreview = !this.showPreview; })
-        Button(this.saving ? 'Saving…' : 'Save')
+        Button(this.saving ? I18n.loading : I18n.editorSave)
           .height(32)
           .fontSize(13)
           .enabled(!this.saving)
@@ -89,7 +91,8 @@ struct NoteEditor {
       .width('100%')
       .padding({ left: 12, right: 12, top: 12, bottom: 8 })
 
-      TextInput({ placeholder: 'Title', text: this.title })
+      // 标题输入
+      TextInput({ placeholder: I18n.editorTitlePlaceholder, text: this.title })
         .fontSize(20)
         .fontWeight(FontWeight.Bold)
         .height(48)
@@ -98,23 +101,34 @@ struct NoteEditor {
         .onChange((v: string) => { this.title = v; })
 
       if (this.showPreview) {
-        Scroll() {
+        if (this.body === '') {
           Column() {
-            Text(markdownToPlainText(this.body))
+            Text(I18n.editorNoBody)
               .fontSize(15)
-              .lineHeight(24)
-              .width('100%')
-              .padding(16)
-              .textAlign(TextAlign.Start)
+              .fontColor('#9A9A9A')
           }
-          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
           .width('100%')
+          .justifyContent(FlexAlign.Center)
+        } else {
+          Scroll() {
+            Column() {
+              Text(markdownToPlainText(this.body))
+                .fontSize(15)
+                .lineHeight(24)
+                .width('100%')
+                .padding(16)
+                .textAlign(TextAlign.Start)
+            }
+            .alignItems(HorizontalAlign.Start)
+            .width('100%')
+          }
+          .layoutWeight(1)
+          .width('100%')
+          .align(Alignment.TopStart)
         }
-        .layoutWeight(1)
-        .width('100%')
-        .align(Alignment.TopStart)
       } else {
-        TextArea({ placeholder: 'Start writing markdown…', text: this.body })
+        TextArea({ placeholder: I18n.editorBodyPlaceholder, text: this.body })
           .layoutWeight(1)
           .width('100%')
           .fontSize(15)
@@ -131,12 +145,13 @@ struct NoteEditor {
           .padding({ left: 12, right: 12, bottom: 4 })
       }
 
+      // 标签输入
       Row() {
-        TextInput({ placeholder: 'Add tag', text: this.tagInput })
+        TextInput({ placeholder: I18n.attachTagHint, text: this.tagInput })
           .layoutWeight(1)
           .height(36)
           .onChange((v: string) => { this.tagInput = v; })
-        Button('Attach')
+        Button(I18n.attachTag)
           .height(36)
           .fontSize(13)
           .margin({ left: 8 })
@@ -159,6 +174,12 @@ struct NoteEditor {
         }
         .width('100%')
         .padding({ left: 12, right: 12, bottom: 12 })
+      } else {
+        Text(I18n.noAttachedTags)
+          .fontSize(12)
+          .fontColor('#9A9A9A')
+          .padding({ left: 12, right: 12, bottom: 12 })
+          .width('100%')
       }
     }
     .width('100%')
@@ -174,7 +195,7 @@ struct NoteEditor {
     this.saving = true;
     current.body = this.body;
     const trimmed: string = this.title.trim();
-    current.title = trimmed === '' ? 'Untitled' : trimmed;
+    current.title = trimmed === '' ? I18n.untitled : trimmed;
     noteRepo.upsert(current)
       .then(() => {
         this.saving = false;
@@ -182,7 +203,7 @@ struct NoteEditor {
       })
       .catch((e: Error) => {
         this.saving = false;
-        this.status = `Save failed: ${e.message}`;
+        this.status = `${I18n.editorSave}：${e.message}`;
       });
   }
 
@@ -194,7 +215,7 @@ struct NoteEditor {
     }
     tagRepo.findByTitle(title)
       .then((existing: Tag | null) => {
-        // Reuse the tag when it already exists so we don't fork the taxonomy.
+        // 标签已存在时直接复用，避免分裂标签命名空间。
         return existing === null ? tagRepo.upsert(newTag(title)) : Promise.resolve(existing);
       })
       .then((tag: Tag) => noteTagRepo.add(current.id, tag.id))
@@ -202,6 +223,6 @@ struct NoteEditor {
         this.tagInput = '';
         this.refreshTags();
       })
-      .catch((e: Error) => { this.status = `Tag failed: ${e.message}`; });
+      .catch((e: Error) => { this.status = `${I18n.attachTag}：${e.message}`; });
   }
 }

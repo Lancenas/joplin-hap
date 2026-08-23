@@ -180,7 +180,12 @@ export class JoplinApi {
     const url: string = buildUrl(this.baseUrl, path, query);
 
     const headers: HeaderMap = {};
-    headers[CONTENT_TYPE] = JSON_MIME;
+    // Only advertise a Content-Type when we actually have a body or the caller
+    // asked for a specific one — sending `application/json` on a GET can be
+    // rejected by stricter server middleware.
+    if (body !== null || extraHeaders !== null) {
+      headers[CONTENT_TYPE] = JSON_MIME;
+    }
     if (this.sessionId !== '') {
       headers[API_AUTH] = this.sessionId;
     }

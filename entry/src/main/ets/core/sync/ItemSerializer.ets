@@ -196,10 +196,22 @@ export interface DeserializedItem {
 // Reverse of buildSerialized: scan the tail of the payload for `key: value`
 // lines, stop at the first blank line, then treat everything above it as the
 // title (first line) plus body (remainder).
-export function unserializeItem(content: string): DeserializedItem {
-  const lines: string[] = content.split('\n');
+//
+// Returns null when the body contains no recognisable Joplin props at all
+// (binary blob, HTML error page, empty payload, …) instead of throwing. The
+// caller can then fall back to the `item_type` field supplied by the delta.
+//
+// `fallbackTypeId` lets the caller say "the server told me this is a Note/Folder/
+// …, so trust that when the body's own `type_` line is absent or unreadable".
+export function unserializeItem(content: string, fallbackTypeId: number = 0): DeserializedItem | null {
+  const trimmed: string = content == null ? '' : content;
+  if (trimmed.length < 4) {
+    return null;
+  }
+  const lines: string[] = trimmed.split('\n');
   const props: Record<string, string> = {};
   let headEnd: number = lines.length;
+  let foundTypeLine: boolean = false;
   for (let i = lines.length - 1; i >= 0; i--) {
     const line: string = lines[i].trim();
     if (line === '') {
@@ -207,21 +219,43 @@ export function unserializeItem(content: string): DeserializedItem {
       break;
     }
     const sep: number = line.indexOf(':');
-    if (sep < 0) {
-      // Not a property line — the property block has ended.
+    if (sep <= 0) {
+      // No colon (or colon at position 0): not a valid prop, end the scan.
       headEnd = i + 1;
       break;
     }
     const key: string = line.substring(0, sep).trim();
+    if (key === '') {
+      headEnd = i + 1;
+      break;
+    }
     const val: string = line.substring(sep + 1).trim();
     props[key] = unescapeValue(val);
+    if (key === 'type_') {
+      foundTypeLine = true;
+    }
   }
 
-  const typeRaw: string = props['type_'] ?? '';
-  if (typeRaw === '') {
-    throw new Error('Missing required property: type_');
+  // Bail out cleanly when the prop block is empty or has no Joplin-looking
+  // fields at all (every line was something else).
+  const propKeys: string[] = Object.keys(props);
+  if (propKeys.length === 0) {
+    return null;
   }
-  const typeId: number = Number(typeRaw);
+
+  let typeId: number = fallbackTypeId;
+  if (foundTypeLine) {
+    const parsed: number = Number(props['type_']);
+    if (parsed > 0) {
+      typeId = parsed;
+    }
+  } else {
+    // No `type_:` line at all in the body. Without a fallback we have no
+    // idea what kind of item this is, so return null.
+    if (typeId <= 0) {
+      return null;
+    }
+  }
 
   const head: string[] = lines.slice(0, headEnd);
   let title: string = '';
@@ -239,9 +273,12 @@ export function unserializeItem(content: string): DeserializedItem {
   }
 
   const out: PropRecord = {};
-  const keys: string[] = Object.keys(props);
-  for (const k of keys) {
+  for (const k of propKeys) {
     const v: string = props[k];
+    if (k === 'type_') {
+      out[k] = typeId;
+      continue;
+    }
     if (isTimeKey(k)) {
       out[k] = fromJoplinTime(v);
     } else {
@@ -250,7 +287,9 @@ export function unserializeItem(content: string): DeserializedItem {
   }
   out['title'] = title;
   out['body'] = body;
-  out['type_'] = typeId;
+  if (!foundTypeLine) {
+    out['type_'] = typeId;
+  }
   return { typeId: typeId, raw: out };
 }
 

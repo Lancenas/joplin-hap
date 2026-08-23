@@ -393,24 +393,41 @@ export class Synchronizer {
       return;
     }
 
+    // Resource items (type=4) are stored as raw binary blobs at the same name;
+    // the text `/content` endpoint returns the markdown payload only when
+    // `jop_type > 0`. We don't yet round-trip resource blobs end-to-end, so
+    // bail on Resources instead of trying to unserialise them.
+    const remoteType: number = this.remoteItemType(remote);
+    if (remoteType === ItemType.Resource) {
+      return;
+    }
+
     const path: string = itemContentPath(itemName);
     const res = await this.api.exec('GET', path);
-    const item: DeserializedItem = unserializeItem(res.body);
+    console.info(`[sync] GET ${path} → ${res.status}, body ${res.body.length}B, head: ${res.body.slice(0, 120)}`);
+    const item: DeserializedItem | null = unserializeItem(res.body, remoteType);
+    if (item === null) {
+      // Body did not look like a Joplin item (might be binary or HTML).
+      // Continue with the rest of the delta — don't fail the whole batch.
+      console.warn(`[sync] skipping ${itemName}: body had no recognisable Joplin props`);
+      return;
+    }
     const raw: PropRecord = item.raw;
+    const effectiveType: number = item.typeId > 0 ? item.typeId : remoteType;
 
-    if (item.typeId === ItemType.Note) {
+    if (effectiveType === ItemType.Note) {
       await noteRepo.upsert(recordToNote(raw), false);
       return;
     }
-    if (item.typeId === ItemType.Folder) {
+    if (effectiveType === ItemType.Folder) {
       await folderRepo.upsert(recordToFolder(raw), false);
       return;
     }
-    if (item.typeId === ItemType.Tag) {
+    if (effectiveType === ItemType.Tag) {
       await tagRepo.upsert(recordToTag(raw), false);
       return;
     }
-    if (item.typeId === ItemType.NoteTag) {
+    if (effectiveType === ItemType.NoteTag) {
       const noteId: string = String(raw['note_id'] ?? '');
       const tagId: string = String(raw['tag_id'] ?? '');
       if (noteId !== '' && tagId !== '') {
@@ -418,8 +435,7 @@ export class Synchronizer {
       }
       return;
     }
-    // Unknown type: leave the item alone — server-driven types like Resource
-    // are not yet supported end-to-end.
+    // Resource / unknown type — silently skipped.
   }
 
   private async deleteLocalByType(itemType: number, id: string): Promise<void> {

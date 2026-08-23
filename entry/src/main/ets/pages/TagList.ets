@@ -1,4 +1,5 @@
 import router from '@ohos.router';
+import { I18n } from '../common/I18n';
 import { Tag } from '../core/models/Entities';
 import { tagRepo } from '../core/services/Repositories';
 import { TagRouteParams } from '../viewmodel/RouteParams';
@@ -17,13 +18,13 @@ struct TagList {
   build() {
     Column() {
       Row() {
-        Button('← Back')
+        Button(`← ${I18n.back}`)
           .height(32)
           .fontSize(13)
           .backgroundColor('#EEF1F5')
           .fontColor('#1F58B8')
           .onClick(() => { router.back(); })
-        Text('Tags')
+        Text(I18n.tagsTitle)
           .fontSize(18)
           .fontWeight(FontWeight.Medium)
           .margin({ left: 12 })
@@ -33,9 +34,13 @@ struct TagList {
 
       if (this.tags.length === 0) {
         Column() {
-          Text('No tags yet.')
+          Text(I18n.noTags)
             .fontSize(13)
             .fontColor('#6B6B6B')
+          Text(I18n.createFirstTag)
+            .fontSize(11)
+            .fontColor('#9A9A9A')
+            .margin({ top: 4 })
         }
         .layoutWeight(1)
         .width('100%')

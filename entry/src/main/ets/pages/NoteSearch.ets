@@ -1,4 +1,5 @@
 import router from '@ohos.router';
+import { I18n } from '../common/I18n';
 import { Note } from '../core/models/Entities';
 import { noteRepo } from '../core/services/Repositories';
 import { NoteRouteParams } from '../viewmodel/RouteParams';
@@ -15,19 +16,19 @@ struct NoteSearchPage {
   build() {
     Column() {
       Row() {
-        Button('← Back')
+        Button(`← ${I18n.back}`)
           .height(32)
           .fontSize(13)
           .backgroundColor('#EEF1F5')
           .fontColor('#1F58B8')
           .onClick(() => { router.back(); })
-        TextInput({ placeholder: 'Search notes', text: this.query })
+        TextInput({ placeholder: I18n.searchHint, text: this.query })
           .layoutWeight(1)
           .height(40)
           .margin({ left: 12 })
           .onChange((v: string) => { this.query = v; })
           .onSubmit(() => { this.runSearch(); })
-        Button('Go')
+        Button(I18n.search)
           .height(32)
           .fontSize(13)
           .margin({ left: 8 })
@@ -38,7 +39,7 @@ struct NoteSearchPage {
 
       if (this.results.length === 0) {
         Column() {
-          Text(this.searched ? 'No matching notes.' : 'Type a query and tap Go.')
+          Text(this.searched ? I18n.searchResultsEmpty : I18n.searchHint)
             .fontSize(13)
             .fontColor('#6B6B6B')
         }
@@ -50,7 +51,7 @@ struct NoteSearchPage {
           ForEach(this.results, (n: Note) => {
             ListItem() {
               Column() {
-                Text(n.title === '' ? 'Untitled' : n.title)
+                Text(n.title === '' ? I18n.untitled : n.title)
                   .fontSize(16)
                   .fontWeight(FontWeight.Medium)
                   .width('100%')
