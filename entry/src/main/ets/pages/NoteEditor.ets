@@ -1,10 +1,12 @@
 import router from '@ohos.router';
 import { webview } from '@kit.ArkWeb';
+import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { picker } from '@kit.CoreFileKit';
 import { I18n } from '../common/I18n';
 import { Note, Tag, newTag } from '../core/models/Entities';
 import { noteRepo, noteTagRepo, tagRepo } from '../core/services/Repositories';
 import { markdownToHtml, previewTemplate } from '../core/markdown/MarkdownRenderer';
-import { AttachmentInfo, getNoteAttachments, openResourceWithSystem, resolveImagesInHtml } from '../core/services/ResourceCache';
+import { AttachmentInfo, CreatedResource, createLocalResource, getNoteAttachments, openResourceWithSystem, resolveImagesInHtml } from '../core/services/ResourceCache';
 import { NoteRouteParams } from '../viewmodel/RouteParams';
 
 @Entry
@@ -236,9 +238,12 @@ struct NoteEditor {
             Button('🔗').fontSize(12).height(30)
               .backgroundColor('#EEF1F5').fontColor('#3C3C3C')
               .onClick(() => { this.wrapSelection('[', '](https://)', '链接文字'); })
-            Button('🖼').fontSize(12).height(30)
+            Button('🖼 图片').fontSize(12).height(30)
               .backgroundColor('#EEF1F5').fontColor('#3C3C3C')
-              .onClick(() => { this.wrapSelection('![', '](:/资源ID)', '图片'); })
+              .onClick(() => { this.pickImage(); })
+            Button('📎 附件').fontSize(12).height(30)
+              .backgroundColor('#EEF1F5').fontColor('#3C3C3C')
+              .onClick(() => { this.pickDocument(); })
           }
           .padding({ left: 12, right: 12 })
         }
@@ -429,6 +434,70 @@ struct NoteEditor {
     const lineStart: number = nl < 0 ? 0 : nl + 1;
     this.body = this.body.substring(0, lineStart) + prefix + this.body.substring(lineStart);
     const caret: number = safeS + prefix.length;
+    setTimeout(() => {
+      try {
+        this.textController.caretPosition(caret);
+      } catch (err) {
+        // ignore
+      }
+    }, 50);
+  }
+
+  // ─── 附件：图片 / 文件选择 → 建 Resource → 插入笔记 → 随同步上传 ───
+
+  private pickImage(): void {
+    const opts = new photoAccessHelper.PhotoSelectOptions();
+    opts.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
+    opts.maxSelectNumber = 1;
+    // 此 API 版本 PhotoViewPicker 为 0 参数构造（内部自行取上下文）。
+    const photoPicker = new photoAccessHelper.PhotoViewPicker();
+    photoPicker.select(opts)
+      .then((result: photoAccessHelper.PhotoSelectResult) => {
+        if (result.photoUris.length > 0) {
+          this.attachFromUri(result.photoUris[0]);
+        }
+      })
+      .catch((e: Error) => { this.status = `${I18n.attachImage}：${e.message}`; });
+  }
+
+  private pickDocument(): void {
+    const docPicker = new picker.DocumentViewPicker(getContext(this));
+    const opts = new picker.DocumentSelectOptions();
+    opts.maxSelectNumber = 1;
+    docPicker.select(opts)
+      .then((uris: string[]) => {
+        if (uris.length > 0) {
+          this.attachFromUri(uris[0]);
+        }
+      })
+      .catch((e: Error) => { this.status = `${I18n.attachFile}：${e.message}`; });
+  }
+
+  private attachFromUri(uri: string): void {
+    this.status = '正在添加附件…';
+    createLocalResource(uri)
+      .then((created: CreatedResource | null) => {
+        if (created === null) {
+          this.status = '附件添加失败';
+          return;
+        }
+        // 图片用 ![](:/id)，文件用 [文件名](:/id)。
+        const snippet: string = created.isImage
+          ? `![${created.title}](:/${created.id})`
+          : `[${created.title}](:/${created.id})`;
+        this.insertAtCursor(snippet);
+        this.refreshAttachments();
+        this.status = '';
+      })
+      .catch((e: Error) => { this.status = `${I18n.attachFile}：${e.message}`; });
+  }
+
+  // 在光标处插入文本（附件引用 / 其他片段）。
+  private insertAtCursor(text: string): void {
+    const s: number = Math.min(this.selStart, this.selEnd);
+    const safeS: number = s < 0 ? this.body.length : s;
+    this.body = this.body.substring(0, safeS) + text + this.body.substring(safeS);
+    const caret: number = safeS + text.length;
     setTimeout(() => {
       try {
         this.textController.caretPosition(caret);

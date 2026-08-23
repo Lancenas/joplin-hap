@@ -62,6 +62,10 @@ export class I18n {
   }
   static readonly noteDeleted: string = '笔记已删除';
   static readonly notebookDeleted: string = '笔记本已删除';
+  static readonly trashTitle: string = '回收站';
+  static readonly trashEmpty: string = '回收站为空';
+  static readonly attachFile: string = '添加附件';
+  static readonly attachImage: string = '添加图片';
 
   // 笔记本
   static readonly notebookRename: string = '重命名笔记本';

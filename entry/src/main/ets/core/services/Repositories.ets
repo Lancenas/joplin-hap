@@ -138,6 +138,11 @@ export class NoteRepository {
     return mapNotes(rows);
   }
 
+  async countTrashed(): Promise<number> {
+    const row: Row | null = await queryOne('SELECT COUNT(*) AS c FROM notes WHERE deleted_time > 0', []);
+    return row === null ? 0 : Number(row['c'] ?? 0);
+  }
+
   async get(id: string): Promise<Note | null> {
     const row: Row | null = await queryOne('SELECT * FROM notes WHERE id = ?', [id]);
     return row === null ? null : rowToNote(row);

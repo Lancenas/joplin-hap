@@ -30,10 +30,11 @@ import {
 } from './JoplinApi';
 import {
   DeserializedItem, PropRecord, recordToFolder, recordToNote, recordToResource, recordToTag,
-  serializeFolder, serializeNote, serializeNoteTag, serializeTag, unserializeItem,
+  serializeFolder, serializeNote, serializeNoteTag, serializeResource, serializeTag, unserializeItem,
 } from './ItemSerializer';
 import { folderRepo, noteRepo, noteTagRepo, resourceRepo, settingsRepo, tagRepo } from '../services/Repositories';
-import { Folder, Note, NoteTag, Tag } from '../models/Entities';
+import { readResourceBlob } from '../services/ResourceCache';
+import { Folder, Note, NoteTag, Resource, Tag } from '../models/Entities';
 import { ItemType, SyncTarget } from '../utils/Constants';
 import { Row, exec, queryAll, queryOne } from '../db/Query';
 
@@ -296,7 +297,23 @@ export class Synchronizer {
       return;
     }
 
-    // Resource upload needs an additional blob PUT — left as a no-op stub.
+    if (itemType === ItemType.Resource) {
+      const resource: Resource | null = await resourceRepo.get(itemId);
+      if (resource === null) {
+        return;
+      }
+      // 1. 先上传二进制 blob 到 .resource/<id>（若本地缓存有 blob）。
+      //    本地新建的附件 blob 在 ResourceCache 里；从服务器拉下来的附件一般已在缓存。
+      const blob: ArrayBuffer | null = await readResourceBlob(itemId);
+      if (blob !== null) {
+        await this.api.putResourceBlob(itemId, blob);
+      } else {
+        console.warn(`[sync] uploadItem: resource ${itemId} has no local blob, uploading metadata only`);
+      }
+      // 2. 再上传元数据到 <id>.md。
+      await this.api.exec('PUT', path, null, serializeResource(resource), uploadHeaders());
+      return;
+    }
   }
 
   private async pushDeletions(): Promise<number> {

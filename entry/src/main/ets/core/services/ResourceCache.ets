@@ -13,7 +13,7 @@ import { common, Want, wantConstant } from '@kit.AbilityKit';
 import { getAppContext } from '../db/Database';
 import { JoplinApi } from '../sync/JoplinApi';
 import { resourceRepo, settingsRepo } from './Repositories';
-import { Resource } from '../models/Entities';
+import { Resource, newResource } from '../models/Entities';
 import { KEY_SYNC_URL, KEY_SYNC_USER, KEY_SYNC_PASSWORD } from '../../viewmodel/AppStore';
 
 const CACHE_DIR_NAME = 'resources';
@@ -118,6 +118,141 @@ export async function ensureResourceFile(resourceId: string): Promise<string> {
   } catch (e) {
     console.warn(`[resource] ensureResourceFile failed for ${resourceId}: ${(e as Error).message}`);
     return '';
+  }
+}
+
+// 读取缓存的 blob 为 ArrayBuffer（供上传用）。文件不存在时返回 null。
+export async function readResourceBlob(resourceId: string): Promise<ArrayBuffer | null> {
+  const path: string = await ensureResourceFile(resourceId);
+  if (path === '') {
+    return null;
+  }
+  try {
+    const stat = fs.statSync(path);
+    const buf: ArrayBuffer = new ArrayBuffer(stat.size);
+    const file = fs.openSync(path, fs.OpenMode.READ_ONLY);
+    fs.readSync(file.fd, buf);
+    fs.closeSync(file);
+    return buf;
+  } catch (e) {
+    console.warn(`[resource] readResourceBlob failed for ${resourceId}: ${(e as Error).message}`);
+    return null;
+  }
+}
+
+// 把文件选择器选中的文件复制进资源缓存，返回缓存路径（<id>.<ext>）。
+// 用于本地新建附件：调用方随后据此建 Resource 实体并在同步时上传。
+export function saveNewResourceBlob(resourceId: string, ext: string, source: ArrayBuffer): string {
+  ensureCacheDir();
+  const path: string = `${cacheDir()}/${resourceId}.${ext}`;
+  const file = fs.openSync(path, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+  fs.writeSync(file.fd, source);
+  fs.closeSync(file);
+  return path;
+}
+
+// ─── 本地新建附件（文件选择器选中的文件 → Resource 实体 + 缓存 blob） ───
+
+function extFromUri(uri: string): string {
+  let clean: string = uri;
+  const q: number = clean.indexOf('?');
+  if (q >= 0) {
+    clean = clean.substring(0, q);
+  }
+  const dot: number = clean.lastIndexOf('.');
+  const slash: number = clean.lastIndexOf('/');
+  if (dot > slash && dot >= 0) {
+    return clean.substring(dot + 1).toLowerCase();
+  }
+  return 'bin';
+}
+
+function fileNameFromUri(uri: string): string {
+  let clean: string = uri;
+  const q: number = clean.indexOf('?');
+  if (q >= 0) {
+    clean = clean.substring(0, q);
+  }
+  const slash: number = clean.lastIndexOf('/');
+  if (slash >= 0) {
+    return clean.substring(slash + 1);
+  }
+  return clean;
+}
+
+export function mimeFromExt(ext: string): string {
+  if (ext === 'png') {
+    return 'image/png';
+  }
+  if (ext === 'jpg' || ext === 'jpeg') {
+    return 'image/jpeg';
+  }
+  if (ext === 'gif') {
+    return 'image/gif';
+  }
+  if (ext === 'webp') {
+    return 'image/webp';
+  }
+  if (ext === 'svg') {
+    return 'image/svg+xml';
+  }
+  if (ext === 'pdf') {
+    return 'application/pdf';
+  }
+  if (ext === 'txt') {
+    return 'text/plain';
+  }
+  if (ext === 'md') {
+    return 'text/markdown';
+  }
+  if (ext === 'zip') {
+    return 'application/zip';
+  }
+  if (ext === 'mp3') {
+    return 'audio/mpeg';
+  }
+  if (ext === 'mp4') {
+    return 'video/mp4';
+  }
+  return 'application/octet-stream';
+}
+
+export interface CreatedResource {
+  id: string;
+  isImage: boolean;
+  title: string;
+}
+
+// 从文件选择器返回的 URI 读文件、复制进缓存、建 Resource 实体并标记同步。
+// 返回 null 表示失败。
+export async function createLocalResource(uri: string): Promise<CreatedResource | null> {
+  try {
+    const srcFile = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+    const stat = fs.statSync(srcFile.fd);
+    const size: number = stat.size;
+    const buf: ArrayBuffer = new ArrayBuffer(size);
+    fs.readSync(srcFile.fd, buf);
+    fs.closeSync(srcFile);
+
+    const ext: string = extFromUri(uri);
+    const mime: string = mimeFromExt(ext);
+    const name: string = fileNameFromUri(uri);
+
+    const resource: Resource = newResource(name, mime, ext, size);
+    saveNewResourceBlob(resource.id, ext, buf);
+    // track=true → 标记到 sync_items，下次同步时上传 blob + 元数据。
+    await resourceRepo.upsert(resource, true);
+    console.info(`[resource] createLocalResource: ${name} (${size}B, ${mime}) → id=${resource.id}`);
+
+    const out: CreatedResource = {
+      id: resource.id,
+      isImage: mime.startsWith('image/'),
+      title: name,
+    };
+    return out;
+  } catch (e) {
+    console.warn(`[resource] createLocalResource failed: ${(e as Error).message}`);
+    return null;
   }
 }
 

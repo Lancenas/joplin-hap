@@ -11,6 +11,10 @@ export const KEY_SYNC_USER = 'sync.9.username';
 export const KEY_SYNC_PASSWORD = 'sync.9.password';
 export const KEY_SYNC_CURSOR = 'sync.cursor';
 
+// 回收站是 deleted_time>0 笔记的虚拟视图，不是同步下来的真实 folder，
+// 所以用一个不会与真实 folder id（32 位 hex）冲突的哨兵 id 表示。
+export const TRASH_VIEW_ID = '__trash__';
+
 @Observed
 export class AppStore {
   folders: Folder[] = [];
@@ -26,6 +30,7 @@ export class AppStore {
   syncDeleted: number = 0;
   searchQuery: string = '';
   totalNotes: number = 0;
+  trashCount: number = 0;
   // 每个笔记本的笔记数缓存，key = folder.id。刷新 folders 时一并更新。
   folderNoteCounts: Record<string, number> = {};
 
@@ -37,13 +42,14 @@ export class AppStore {
 
   async refreshFolders(): Promise<void> {
     this.folders = await folderRepo.list();
-    // 同时刷新每个笔记本的笔记数，供侧栏显示。
+    // 同时刷新每个笔记本的笔记数 + 回收站计数，供侧栏显示。
     const counts: Record<string, number> = {};
     for (const f of this.folders) {
       counts[f.id] = await noteRepo.countByFolder(f.id);
     }
     this.folderNoteCounts = counts;
-    console.info(`[joplin-hap] refreshFolders: ${this.folders.length} folder(s), totalNotes=${this.totalNotes}`);
+    this.trashCount = await noteRepo.countTrashed();
+    console.info(`[joplin-hap] refreshFolders: ${this.folders.length} folder(s), trash=${this.trashCount}`);
   }
 
   async refreshTags(): Promise<void> {
@@ -53,6 +59,9 @@ export class AppStore {
   async refreshNotes(): Promise<void> {
     if (this.selectedTagId !== '') {
       this.notes = await tagRepo.notesForTag(this.selectedTagId);
+    } else if (this.selectedFolderId === TRASH_VIEW_ID) {
+      // 回收站：只看已删除（deleted_time>0）的笔记。
+      this.notes = await noteRepo.listTrashed();
     } else if (this.selectedFolderId === '') {
       // No notebook selected — show everything, newest first.
       this.notes = await noteRepo.listRecent();
@@ -60,10 +69,18 @@ export class AppStore {
       this.notes = await noteRepo.listByFolder(this.selectedFolderId);
     }
     this.totalNotes = await noteRepo.countAll();
+    this.trashCount = await noteRepo.countTrashed();
   }
 
   async selectFolder(id: string): Promise<void> {
     this.selectedFolderId = id;
+    this.selectedTagId = '';
+    this.selectedNoteId = '';
+    await this.refreshNotes();
+  }
+
+  async selectTrash(): Promise<void> {
+    this.selectedFolderId = TRASH_VIEW_ID;
     this.selectedTagId = '';
     this.selectedNoteId = '';
     await this.refreshNotes();
@@ -107,6 +124,9 @@ export class AppStore {
     if (this.selectedTagId !== '') {
       const t: string = this.tagTitle(this.selectedTagId);
       return t === '' ? I18n.tagsTitle : `# ${t}`;
+    }
+    if (this.selectedFolderId === TRASH_VIEW_ID) {
+      return I18n.trashTitle;
     }
     if (this.selectedFolderId === '') {
       return I18n.notesTitle;

@@ -211,6 +211,50 @@ export class JoplinApi {
     }
   }
 
+  // 上传 Resource 二进制 blob 到 `.resource/<id>`（Content-Type:
+  // application/octet-stream，服务端 formidable 按文件接收）。metadata 另走
+  // `PUT <id>.md`（见 Synchronizer.uploadItem）。
+  async putResourceBlob(resourceId: string, blob: ArrayBuffer): Promise<void> {
+    if (this.sessionId === '') {
+      throw new ApiError(401, 'notAuthenticated', 'Not authenticated: call session() first');
+    }
+    const url: string = buildUrl(this.baseUrl, resourceBlobPath(resourceId), null);
+    const headers: HeaderMap = {};
+    headers[API_AUTH] = this.sessionId;
+    headers[CONTENT_TYPE] = 'application/octet-stream';
+    const opts: http.HttpRequestOptions = {
+      method: http.RequestMethod.PUT,
+      header: headers,
+      connectTimeout: 15000,
+      readTimeout: 120000,
+      expectDataType: http.HttpDataType.STRING,
+      extraData: blob,
+    };
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(url, opts);
+      const status: number = response.responseCode;
+      if (status >= 200 && status < 300) {
+        console.info(`[sync] putResourceBlob ${resourceId}: ${blob.byteLength}B → ${status}`);
+        return;
+      }
+      const text: string = typeof response.result === 'string' ? response.result as string : '';
+      throw new ApiError(status, 'http', `blob upload failed: HTTP ${status} ${text.slice(0, 120)}`);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      const be: BusinessError = err as BusinessError;
+      throw new ApiError(-1, 'network', `putResourceBlob ${resourceId}: ${be.message ?? 'Network request failed'}`);
+    } finally {
+      try {
+        request.destroy();
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+
   async exec(
     method: string,
     path: string,

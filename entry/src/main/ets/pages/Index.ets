@@ -1,6 +1,6 @@
 import router from '@ohos.router';
 import { I18n } from '../common/I18n';
-import { AppStore, appStore } from '../viewmodel/AppStore';
+import { AppStore, appStore, TRASH_VIEW_ID } from '../viewmodel/AppStore';
 import { NoteRouteParams } from '../viewmodel/RouteParams';
 import { Folder, Note, Tag, newFolder, newNote } from '../core/models/Entities';
 import { folderRepo, noteRepo } from '../core/services/Repositories';
@@ -223,6 +223,30 @@ struct Index {
             .bindContextMenu(this.folderContextMenu(folder), ResponseType.LongPress)
           }
         }, (folder: Folder) => `${folder.id}-${folder.updatedTime}`)
+
+        // 回收站（虚拟视图：deleted_time>0 的笔记，不是同步下来的真实 folder）
+        ListItem() {
+          Row() {
+            Text('🗑')
+              .fontSize(14)
+              .margin({ right: 6 })
+            Text(I18n.trashTitle)
+              .layoutWeight(1)
+              .fontSize(14)
+              .fontColor(this.store.selectedFolderId === TRASH_VIEW_ID ? '#1F58B8' : '#3C3C3C')
+            Text(`${this.store.trashCount}`)
+              .fontSize(12)
+              .fontColor('#9A9A9A')
+              .margin({ right: 4 })
+            if (this.store.selectedFolderId === TRASH_VIEW_ID) {
+              Text('•').fontColor('#1F58B8').fontSize(18)
+            }
+          }
+          .padding(10)
+          .backgroundColor(this.store.selectedFolderId === TRASH_VIEW_ID ? '#E1ECFF' : Color.Transparent)
+          .borderRadius(8)
+          .onClick(() => { this.pickTrash(); })
+        }
       }
       .layoutWeight(3)
       .width('100%')
@@ -394,6 +418,12 @@ struct Index {
     this.store.selectFolder(id)
       .then(() => { this.revision += 1; })
       .catch((e: Error) => { console.error(`[joplin-hap] selectFolder: ${e.message}`); });
+  }
+
+  private pickTrash(): void {
+    this.store.selectTrash()
+      .then(() => { this.revision += 1; })
+      .catch((e: Error) => { console.error(`[joplin-hap] selectTrash: ${e.message}`); });
   }
 
   private pickTag(id: string): void {
