@@ -75,6 +75,13 @@ struct NoteEditor {
             router.back();
           })
         Blank()
+        Button(I18n.delete)
+          .height(32)
+          .fontSize(13)
+          .backgroundColor('#FEE')
+          .fontColor('#B3261E')
+          .margin({ right: 8 })
+          .onClick(() => { this.confirmDelete(); })
         Button(this.showPreview ? I18n.editorEdit : I18n.editorPreview)
           .height(32)
           .fontSize(13)
@@ -205,6 +212,33 @@ struct NoteEditor {
         this.saving = false;
         this.status = `${I18n.editorSave}：${e.message}`;
       });
+  }
+
+  private confirmDelete(): void {
+    const current: Note | null = this.note;
+    if (current === null) {
+      return;
+    }
+    const title: string = current.title === '' ? I18n.untitled : current.title;
+    AlertDialog.show({
+      title: I18n.delete,
+      message: I18n.noteDeleteConfirm(title),
+      primaryButton: { value: I18n.cancel, action: () => {} },
+      secondaryButton: {
+        value: I18n.delete,
+        fontColor: '#B3261E',
+        action: () => { this.deleteNote(current); }
+      }
+    });
+  }
+
+  private deleteNote(note: Note): void {
+    noteRepo.delete(note.id)
+      .then(() => {
+        console.info(`[joplin-hap] deleted note ${note.id} from editor`);
+        router.back();
+      })
+      .catch((e: Error) => { this.status = `${I18n.delete}：${e.message}`; });
   }
 
   private attachTag(): void {

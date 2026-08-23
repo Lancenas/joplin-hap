@@ -57,6 +57,12 @@ export class I18n {
     return n + ' 条笔记';
   }
 
+  static noteDeleteConfirm(title: string): string {
+    return `确定删除笔记 “${title}”？删除后将在下次同步时从服务器移除。`;
+  }
+  static readonly noteDeleted: string = '笔记已删除';
+  static readonly notebookDeleted: string = '笔记本已删除';
+
   // 笔记本
   static readonly notebookRename: string = '重命名笔记本';
   static readonly notebookDelete: string = '删除笔记本';

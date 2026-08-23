@@ -29,6 +29,58 @@ struct Index {
       .catch((e: Error) => { console.error(`[joplin-hap] reload failed: ${e.message}`); });
   }
 
+  // ── 删除笔记 ──
+  private confirmDeleteNote(note: Note): void {
+    const title: string = note.title === '' ? I18n.untitled : note.title;
+    AlertDialog.show({
+      title: I18n.delete,
+      message: I18n.noteDeleteConfirm(title),
+      primaryButton: { value: I18n.cancel, action: () => {} },
+      secondaryButton: {
+        value: I18n.delete,
+        fontColor: '#B3261E',
+        action: () => { this.deleteNote(note); }
+      }
+    });
+  }
+
+  private deleteNote(note: Note): void {
+    noteRepo.delete(note.id)
+      .then(() => {
+        console.info(`[joplin-hap] deleted note ${note.id}`);
+        this.reload();
+      })
+      .catch((e: Error) => { console.error(`[joplin-hap] deleteNote: ${e.message}`); });
+  }
+
+  // ── 删除笔记本 ──
+  private confirmDeleteFolder(folder: Folder): void {
+    const name: string = folder.title === '' ? I18n.untitledNotebook : folder.title;
+    AlertDialog.show({
+      title: I18n.notebookDelete,
+      message: I18n.notebookDeleteConfirm(name),
+      primaryButton: { value: I18n.cancel, action: () => {} },
+      secondaryButton: {
+        value: I18n.delete,
+        fontColor: '#B3261E',
+        action: () => { this.deleteFolder(folder); }
+      }
+    });
+  }
+
+  private deleteFolder(folder: Folder): void {
+    folderRepo.delete(folder.id)
+      .then(() => {
+        console.info(`[joplin-hap] deleted folder ${folder.id}`);
+        // 删除当前选中的笔记本时，回退到「全部笔记」
+        if (this.store.selectedFolderId === folder.id) {
+          this.store.selectedFolderId = '';
+        }
+        this.reload();
+      })
+      .catch((e: Error) => { console.error(`[joplin-hap] deleteFolder: ${e.message}`); });
+  }
+
   build() {
     Column() {
       // 顶栏
@@ -79,6 +131,22 @@ struct Index {
     .height('100%')
     .backgroundColor('#F2F4F7')
     .bindContentCover($$this.showCreateFolder, this.createFolderDialog())
+  }
+
+  @Builder
+  noteContextMenu(note: Note) {
+    Menu() {
+      MenuItem({ content: I18n.delete })
+        .onClick(() => { this.confirmDeleteNote(note); })
+    }
+  }
+
+  @Builder
+  folderContextMenu(folder: Folder) {
+    Menu() {
+      MenuItem({ content: I18n.notebookDelete })
+        .onClick(() => { this.confirmDeleteFolder(folder); })
+    }
   }
 
   @Builder
@@ -152,6 +220,7 @@ struct Index {
             .backgroundColor(this.store.selectedFolderId === folder.id ? '#E1ECFF' : Color.Transparent)
             .borderRadius(8)
             .onClick(() => { this.pickFolder(folder.id); })
+            .bindContextMenu(this.folderContextMenu(folder), ResponseType.LongPress)
           }
         }, (folder: Folder) => `${folder.id}-${folder.updatedTime}`)
       }
@@ -277,6 +346,7 @@ struct Index {
               this.noteRow(note)
             }
             .onClick(() => { this.openNote(note.id); })
+            .bindContextMenu(this.noteContextMenu(note), ResponseType.LongPress)
           }, (note: Note) => `${note.id}-${note.updatedTime}`)
         }
         .layoutWeight(1)
