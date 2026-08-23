@@ -53,7 +53,6 @@ const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS notes_is_conflict ON notes (is_conflict)`,
   `CREATE INDEX IF NOT EXISTS notes_is_todo ON notes (is_todo)`,
   `CREATE INDEX IF NOT EXISTS notes_order ON notes (\`order\`)`,
-  `CREATE INDEX IF NOT EXISTS notes_deleted_time ON notes (deleted_time)`,
 
   `CREATE TABLE IF NOT EXISTS tags (
     id TEXT PRIMARY KEY,
@@ -137,12 +136,16 @@ const SCHEMA_STATEMENTS: string[] = [
   )`
 ];
 
-const SCHEMA_VERSION = '2';
+const SCHEMA_VERSION = '3';
 
-// 列级迁移：v1 → v2 给 notes 表加 deleted_time 列（回收站）。
+// 列级迁移：给 notes 表加 deleted_time 列（回收站）。
 // CREATE TABLE IF NOT EXISTS 不会给已存在的表加列，必须显式 ALTER TABLE。
+// 这些语句对所有老库都执行（幂等）：fresh 库表已由 CREATE TABLE 建好并含该列，
+// ALTER 会因 duplicate column 报 benign 错被忽略；老库则真正补上列。
+// 索引必须放在 ALTER 之后，否则引用的列还不存在会导致建索引失败。
 const MIGRATION_STATEMENTS: string[] = [
   'ALTER TABLE notes ADD COLUMN deleted_time INT NOT NULL DEFAULT 0',
+  'CREATE INDEX IF NOT EXISTS notes_deleted_time ON notes (deleted_time)',
 ];
 
 let storeInstance: relationalStore.RdbStore | null = null;
@@ -201,15 +204,17 @@ async function runMigrations(store: relationalStore.RdbStore): Promise<void> {
       }
     }
   }
-  // 列级迁移（对老库补列；duplicate column 报错视为 benign）
-  if (stored !== '') {
-    for (const stmt of MIGRATION_STATEMENTS) {
-      try {
-        await store.executeSql(stmt);
-      } catch (err) {
-        // duplicate column name — already migrated, safe to ignore.
-        console.info(`[db] migration skip (likely applied): ${stmt}`);
-      }
+  // 列级迁移 —— 对所有老库无条件执行（幂等）。
+  // 注意：绝不能加 `if (stored !== '')` 守卫 —— 老库若缺 schema_meta，
+  // stored 为 ''，守卫会跳过迁移导致列永远加不上，但版本号却被写入，
+  // 之后每次启动都直接 return，造成永久缺列。ALTER/CREATE INDEX IF NOT EXISTS
+  // 本身幂等（duplicate column / already exists 都是 benign），无条件跑即可。
+  for (const stmt of MIGRATION_STATEMENTS) {
+    try {
+      await store.executeSql(stmt);
+    } catch (err) {
+      // duplicate column / no such table / already exists — 全部 benign。
+      console.info(`[db] migration note (idempotent): ${stmt}`);
     }
   }
   await store.executeSql(

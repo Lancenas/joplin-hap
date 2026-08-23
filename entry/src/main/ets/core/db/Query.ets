@@ -1,5 +1,6 @@
 // Thin RdbStore wrapper providing typed query helpers and a small value binder.
 import { relationalStore } from '@kit.ArkData';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { getStore } from './Database';
 
 export type Row = Record<string, string | number | null>;
@@ -48,7 +49,17 @@ export async function exec(
   bind?: relationalStore.ValueType[]
 ): Promise<void> {
   const store = await getStore();
-  await store.executeSql(sql, bind ?? []);
+  try {
+    await store.executeSql(sql, bind ?? []);
+  } catch (e) {
+    // 把失败的具体 SQL 附进错误消息，否则 HarmonyOS 只给一句
+    // "Generic error: Insert failed or the updated data does not exist"，
+    // 根本无法定位是哪条语句。
+    const be: BusinessError = e as BusinessError;
+    const snippet: string = sql.replace(/\s+/g, ' ').slice(0, 90);
+    console.error(`[db] exec failed: ${be.code} ${be.message} | SQL: ${snippet}`);
+    throw new Error(`SQLite[${be.code}] ${be.message} | SQL: ${snippet}`);
+  }
 }
 
 export async function transaction(fn: () => Promise<void>): Promise<void> {
