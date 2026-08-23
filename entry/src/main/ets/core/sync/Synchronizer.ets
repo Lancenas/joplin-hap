@@ -220,6 +220,7 @@ export class Synchronizer {
         WHERE si.sync_target = ? AND si.sync_time = 0`,
       [SyncTarget.JoplinServer]
     );
+    console.info(`[sync] pushLocal: ${rows.length} item(s) pending upload`);
     let pushed: number = 0;
     for (const r of rows) {
       const sid: number = Number(r['sid'] ?? 0);
@@ -229,16 +230,19 @@ export class Synchronizer {
         continue;
       }
       try {
+        console.info(`[sync] pushLocal: uploading type=${itemType} id=${itemId}`);
         await this.uploadItem(itemType, itemId);
         await exec('UPDATE sync_items SET sync_time = ? WHERE id = ?',
           [Number(r['local_updated_time'] ?? 0), sid]);
         pushed += 1;
       } catch (e) {
         // A single failed item should not abort the whole round.
+        console.warn(`[sync] pushLocal: FAILED type=${itemType} id=${itemId}: ${(e as Error).message}`);
         this.report(new SyncProgress(SyncPhase.UpdateRemote,
           `Push failed for ${itemId}: ${(e as Error).message}`, pushed));
       }
     }
+    console.info(`[sync] pushLocal: done, ${pushed}/${rows.length} uploaded`);
     return pushed;
   }
 
@@ -297,6 +301,7 @@ export class Synchronizer {
 
   private async pushDeletions(): Promise<number> {
     const rows: Row[] = await queryAll('SELECT id, item_type, item_id FROM deleted_items');
+    console.info(`[sync] pushDeletions: ${rows.length} item(s) pending delete`);
     if (rows.length === 0) {
       return 0;
     }
@@ -332,6 +337,7 @@ export class Synchronizer {
 
   private async pullDelta(): Promise<number> {
     let cursor: string = (await settingsRepo.get('sync.cursor')) ?? '';
+    console.info(`[sync] pullDelta: starting with cursor='${cursor === '' ? '(empty)' : cursor.slice(0, 20) + '...'}'`);
     let pulled: number = 0;
     let totalKnown: number = 0;
     let safety: number = 0;
@@ -346,6 +352,7 @@ export class Synchronizer {
       const parsed: DeltaResponse = parseDelta(res.body);
       const items: DeltaItem[] = parsed.items ?? [];
       totalKnown += items.length;
+      console.info(`[sync] pullDelta: batch ${safety}, ${items.length} item(s), has_more=${parsed.has_more}`);
       this.report(new SyncProgress(SyncPhase.Delta,
         `Applying ${items.length} change(s)…`, 0, pulled, 0, totalKnown, totalKnown - items.length));
 
@@ -408,17 +415,22 @@ export class Synchronizer {
   }
 
   private async applyRemote(remote: DeltaItem): Promise<void> {
-    if (this.isRemoteDelete(remote)) {
-      const itemType: number = this.remoteItemType(remote);
-      const itemId: string = this.remoteItemId(remote);
-      if (itemType > 0 && itemId !== '') {
-        await this.deleteLocalByType(itemType, itemId);
+    const remoteType: number = this.remoteItemType(remote);
+    const remoteId: string = this.remoteItemId(remote);
+    const remoteName: string = String(remote.item_name ?? '');
+    const isDel: boolean = this.isRemoteDelete(remote);
+    console.info(`[sync] applyRemote: type=${remoteType} id=${remoteId} name=${remoteName} changeType=${remote.type ?? '?'} isDelete=${isDel}`);
+
+    if (isDel) {
+      if (remoteType > 0 && remoteId !== '') {
+        await this.deleteLocalByType(remoteType, remoteId);
+        console.info(`[sync] applyRemote: deleted local type=${remoteType} id=${remoteId}`);
       }
       return;
     }
 
-    const itemName: string = String(remote.item_name ?? '');
-    if (itemName === '') {
+    if (remoteName === '') {
+      console.warn(`[sync] applyRemote: skipping — no item_name`);
       return;
     }
 
@@ -426,12 +438,12 @@ export class Synchronizer {
     // the text `/content` endpoint returns the markdown payload only when
     // `jop_type > 0`. We don't yet round-trip resource blobs end-to-end, so
     // bail on Resources instead of trying to unserialise them.
-    const remoteType: number = this.remoteItemType(remote);
     if (remoteType === ItemType.Resource) {
+      console.info(`[sync] applyRemote: skipping Resource ${remoteId}`);
       return;
     }
 
-    const path: string = itemContentPath(itemName);
+    const path: string = itemContentPath(remoteName);
     // Per-item content fetch: retry transient transport failures (TLS reset,
     // proxy timeout, …) up to 3 attempts with linear backoff. pullDelta's
     // outer try/catch already isolates a hard failure for one item so the
@@ -442,7 +454,7 @@ export class Synchronizer {
     if (item === null) {
       // Body did not look like a Joplin item (might be binary or HTML).
       // Continue with the rest of the delta — don't fail the whole batch.
-      console.warn(`[sync] skipping ${itemName}: body had no recognisable Joplin props`);
+      console.warn(`[sync] skipping ${remoteName}: body had no recognisable Joplin props`);
       return;
     }
     const raw: PropRecord = item.raw;
