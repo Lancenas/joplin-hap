@@ -88,6 +88,14 @@ struct Settings {
             .enabled(!this.syncing)
             .onClick(() => { this.runSync(); })
 
+          Button('Force full resync')
+            .margin({ top: 8 })
+            .fontSize(12)
+            .backgroundColor('#EEF1F5')
+            .fontColor('#1F58B8')
+            .enabled(!this.syncing)
+            .onClick(() => { this.forceResync(); })
+
           Text('joplin-hap keeps a Joplin-compatible SQLite database and speaks the '
             + 'same item format and sync protocol as the official clients, so the same '
             + 'account can be shared with Joplin on desktop and mobile.')
@@ -143,5 +151,11 @@ struct Settings {
         this.syncing = false;
         this.message = `Sync failed: ${e.message}`;
       });
+  }
+
+  private forceResync(): void {
+    appStore.resetSyncCursor()
+      .then(() => { this.message = 'Sync cursor cleared. Tap "Sync now" to pull everything from scratch.'; })
+      .catch((e: Error) => { this.message = `Reset failed: ${e.message}`; });
   }
 }

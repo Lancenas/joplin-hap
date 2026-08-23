@@ -71,9 +71,16 @@ export function trimSlashes(s: string): string {
 // matches `:id` greedily up to the last `/delta`, and the change-model parser
 // expects the format to be `root:<inner-path>`. With an empty inner path the
 // full id becomes "root:/:" (no extra slash).
+//
+// All sync items (Note / Folder / Tag / NoteTag / Resource-metadata) share the
+// `<joplin-id>.md` (or `.resource`) naming convention. Body fetch/upload goes
+// through the `/content` suffix; bare `:id` returns only the metadata JSON.
 export const DELTA_PATH = 'api/items/root:/:/delta';
-export function apiFilePath(id: string, ext: string): string {
-  return `api/items/root:/${id}${ext}:`;
+export function itemMetadataPath(name: string): string {
+  return `api/items/root:/${name}:`;
+}
+export function itemContentPath(name: string): string {
+  return `${itemMetadataPath(name)}/content`;
 }
 
 function buildUrl(base: string, path: string, query: QueryMap | null): string {

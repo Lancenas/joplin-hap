@@ -169,6 +169,35 @@ public async delta(path: string, ...) {
 
 也就是 delta 的真实端点是 `api/items/root:/:/delta`，中间两个冒号。本项目修了 `JoplinApi.DELTA_PATH` 常量统一使用。
 
+### 8. Delta 拉到的不是完整 item，还要再 GET /content
+
+`/api/items/:id/delta` 返回的 `items` 是 change 记录列表，**只含元数据**，没有 item body。要拿到完整 item 必须二次请求 `/api/items/:id/content`：
+
+```text
+GET  api/items/root:/<item_name>:/content   ← 文本序列化的 Joplin item（"title\n\nbody\n\nkey: value...type_: N"）
+PUT  api/items/root:/<id>.md:/content       ← 上传（注意 extension 是路径的一部分）
+DEL  api/items/root:/<item_name>:           ← 删除，不要加 /content
+```
+
+五条 sync item 的服务端 `name` **统一是 `<jop_id>.md`**（见 `BaseItem.systemPath` 默认 `extension='md'`），Folder/Tag/NoteTag 也用 `.md`。只有 Resource 用 `.resource`，并且需要先上传 `.resource/<id>` blob，再上传 `.md` metadata。
+
+如果有遗留的 sync.cursor 无法拉全历史，joplin-hap 在 settings 页提供 **Force full resync** 按钮把 cursor 清空，下次 sync 从头开始。
+
+### 9. Server 端 change 字段名（不要和服务端 ItemType 混了）
+
+Delta response 每条 change 长这样（来自 `server/src/models/ChangeModel/ChangeModel.ts:delta()`）：
+
+| 字段 | 含义 |
+|---|---|
+| `id` | change 的主键（**不是** item id） |
+| `item_id` | joplin item id（无扩展名，32 字符 hex） |
+| `item_name` | 服务端存储名（含 `.md`/`.resource`） |
+| `item_type` | Joplin ModelType（Note=1 / Folder=2 / Resource=4 / Tag=5 / NoteTag=7） |
+| `type` | **ChangeType**（1=Create / 2=Update / 3=Delete）— 这是判断删除的依据 |
+| `cursor` | 增量游标 |
+
+`server/src/services/database/types.ts` 里也有一份 `ItemType` enum（1=Item, 2=UserItem, 3=User），但那是**数据库表**枚举（用在 `db('items')` 等查询中），和 joplin item 的 ModelType **不是一回事**，不要混。
+
 ---
 
 ## ArkTS 严格模式限制备忘

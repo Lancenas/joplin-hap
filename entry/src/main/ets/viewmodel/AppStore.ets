@@ -8,6 +8,7 @@ import { folderRepo, noteRepo, settingsRepo, tagRepo } from '../core/services/Re
 export const KEY_SYNC_URL = 'sync.9.path';
 export const KEY_SYNC_USER = 'sync.9.username';
 export const KEY_SYNC_PASSWORD = 'sync.9.password';
+export const KEY_SYNC_CURSOR = 'sync.cursor';
 
 @Observed
 export class AppStore {
@@ -117,6 +118,13 @@ export class AppStore {
     await settingsRepo.set(KEY_SYNC_URL, url);
     await settingsRepo.set(KEY_SYNC_USER, user);
     await settingsRepo.set(KEY_SYNC_PASSWORD, password);
+  }
+
+  // Clears the persisted delta cursor so the next sync starts from the
+  // beginning. Useful after an upgrade that fixes the sync protocol or after
+  // recovering from a long disconnect.
+  async resetSyncCursor(): Promise<void> {
+    await settingsRepo.set(KEY_SYNC_CURSOR, '');
   }
 
   syncUrl: string = '';

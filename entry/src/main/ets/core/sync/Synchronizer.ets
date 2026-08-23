@@ -2,18 +2,35 @@
 // laurent22/joplin's Synchronizer that exercises the same primitives:
 //   1. update_remote  – push items that have changed locally
 //   2. delete_remote  – push local deletions
-//   3. delta          – pull the remote change set, apply locally
+//   3. delta          – pull the remote change set, then fetch each item body
 //
-// The cursor is opaque to us; the server returns it with each delta response
-// and we persist it in the settings table under "sync.cursor".
+// The server-side item-id format is non-obvious:
+//
+//   - Sync items (Note / Folder / Tag / NoteTag / Resource-metadata) are stored
+//     under a "name" that is `<joplin-id>.<ext>`, where `<ext>` is always `md`
+//     for the five sync item types (see BaseItem.systemPath in joplin/lib/
+//     models/BaseItem.ts, default extension 'md'). Resources additionally have
+//     a blob path under `.resource/<id>`.
+//   - The URL space is `api/items/root:/<name>:` — `pathToName` then strips
+//     `root:/` and the trailing `:` so it can look the item up by `name`.
+//   - `GET /api/items/:id` returns only the metadata JSON. The serialized item
+//     body lives at `GET /api/items/:id/content`. PUT is symmetric, and DELETE
+//     is just `DELETE /api/items/:id` (no body).
+//   - The delta endpoint is `api/items/root:/:/delta` — inner path is empty,
+//     trailing colon is required. delta's response is a list of *change*
+//     records (id, item_id, item_name, item_type, type: ChangeType, …), not a
+//     list of full item bodies. We must fetch each item body separately.
 //
 // ArkTS notes: object literals need a declared type and cannot use computed or
 // quoted keys, and destructuring declarations are rejected — hence the classes
 // and the explicit index access below.
-import { JoplinApi, HeaderMap, QueryMap, apiFilePath, DELTA_PATH, TEXT_MIME } from './JoplinApi';
+import {
+  JoplinApi, HeaderMap, QueryMap, TEXT_MIME, DELTA_PATH,
+  itemContentPath, itemMetadataPath,
+} from './JoplinApi';
 import {
   DeserializedItem, PropRecord, recordToFolder, recordToNote, recordToTag,
-  serializeFolder, serializeNote, serializeNoteTag, serializeTag, unserializeItem
+  serializeFolder, serializeNote, serializeNoteTag, serializeTag, unserializeItem,
 } from './ItemSerializer';
 import { folderRepo, noteRepo, noteTagRepo, settingsRepo, tagRepo } from '../services/Repositories';
 import { Folder, Note, NoteTag, Tag } from '../models/Entities';
@@ -59,12 +76,26 @@ export class SyncResult {
   durationMs: number = 0;
 }
 
+// Joplin Server returns one of these per affected item per delta call. The
+// server keeps two separate enums:
+//
+//   item_type — the Joplin client ModelType (Note=1, Folder=2, Resource=4,
+//     Tag=5, NoteTag=7). The server stores this in items.jop_type and on
+//     changes.item_type.
+//   type — ChangeType (1=Create, 2=Update, 3=Delete). This is what tells us
+//     whether to fetch the body or remove the local copy.
+//
+// item_name is the actual file-name under which the server stores the item
+// body — it carries the `<id>.md` (or `.resource` for resources) suffix.
 interface DeltaItem {
   id: string;
-  type_: number;
-  path?: string;
-  updated_time?: number;
+  item_id?: string;
+  item_name?: string;
+  item_type?: number;
+  type?: number;
+  type_?: number;
   isDeleted?: boolean;
+  updated_time?: number;
 }
 
 interface DeltaResponse {
@@ -81,15 +112,14 @@ class BatchDeleteRequest {
   }
 }
 
-// Joplin appends a type-dependent extension to the remote item path.
+// Joplin server stores every sync item (Note / Folder / Tag / NoteTag) under
+// the same `<id>.md` name pattern — see BaseItem.systemPath in upstream. Only
+// Resource uses a different extension.
 function extForType(itemType: number): string {
-  if (itemType === ItemType.Note) {
-    return '.md';
-  }
   if (itemType === ItemType.Resource) {
     return '.resource';
   }
-  return '';
+  return '.md';
 }
 
 function parseDelta(s: string): DeltaResponse {
@@ -182,6 +212,9 @@ export class Synchronizer {
       const sid: number = Number(r['sid'] ?? 0);
       const itemType: number = Number(r['item_type'] ?? 0);
       const itemId: string = String(r['item_id'] ?? '');
+      if (itemType === 0 || itemId === '') {
+        continue;
+      }
       try {
         await this.uploadItem(itemType, itemId);
         await exec('UPDATE sync_items SET sync_time = ? WHERE id = ?',
@@ -197,7 +230,8 @@ export class Synchronizer {
   }
 
   private async uploadItem(itemType: number, itemId: string): Promise<void> {
-    const path: string = apiFilePath(itemId, extForType(itemType));
+    const itemName: string = `${itemId}${extForType(itemType)}`;
+    const path: string = itemContentPath(itemName);
 
     if (itemType === ItemType.Note) {
       const note: Note | null = await noteRepo.get(itemId);
@@ -242,7 +276,10 @@ export class Synchronizer {
         userUpdatedTime: Number(row['user_updated_time'] ?? 0),
       };
       await this.api.exec('PUT', path, null, serializeNoteTag(noteTag), textHeaders());
+      return;
     }
+
+    // Resource upload needs an additional blob PUT — left as a no-op stub.
   }
 
   private async pushDeletions(): Promise<number> {
@@ -252,8 +289,16 @@ export class Synchronizer {
     }
     const paths: string[] = [];
     for (const r of rows) {
-      const ext: string = extForType(Number(r['item_type'] ?? 0));
-      paths.push(apiFilePath(String(r['item_id'] ?? ''), ext));
+      const itemType: number = Number(r['item_type'] ?? 0);
+      const itemId: string = String(r['item_id'] ?? '');
+      if (itemType === 0 || itemId === '') {
+        continue;
+      }
+      paths.push(itemMetadataPath(`${itemId}${extForType(itemType)}`));
+    }
+    if (paths.length === 0) {
+      await exec('DELETE FROM deleted_items');
+      return 0;
     }
     try {
       const payload: string = JSON.stringify(new BatchDeleteRequest(paths));
@@ -269,7 +314,7 @@ export class Synchronizer {
       }
     }
     await exec('DELETE FROM deleted_items');
-    return rows.length;
+    return paths.length;
   }
 
   private async pullDelta(): Promise<number> {
@@ -313,22 +358,45 @@ export class Synchronizer {
     return pulled;
   }
 
-  private async applyRemote(remote: DeltaItem): Promise<void> {
+  // ChangeType: 1=Create, 2=Update, 3=Delete. Older servers may use the
+  // optional `isDeleted` flag as an alias, fall back to it for safety.
+  private isRemoteDelete(remote: DeltaItem): boolean {
+    if (remote.type === 3) {
+      return true;
+    }
     if (remote.isDeleted === true) {
-      await this.deleteLocalByType(remote.type_, remote.id);
+      return true;
+    }
+    return false;
+  }
+
+  private remoteItemType(remote: DeltaItem): number {
+    return Number(remote.item_type ?? remote.type_ ?? 0);
+  }
+
+  private remoteItemId(remote: DeltaItem): string {
+    return String(remote.item_id ?? '');
+  }
+
+  private async applyRemote(remote: DeltaItem): Promise<void> {
+    if (this.isRemoteDelete(remote)) {
+      const itemType: number = this.remoteItemType(remote);
+      const itemId: string = this.remoteItemId(remote);
+      if (itemType > 0 && itemId !== '') {
+        await this.deleteLocalByType(itemType, itemId);
+      }
       return;
     }
-    const path: string = remote.path ?? apiFilePath(remote.id, extForType(remote.type_));
+
+    const itemName: string = String(remote.item_name ?? '');
+    if (itemName === '') {
+      return;
+    }
+
+    const path: string = itemContentPath(itemName);
     const res = await this.api.exec('GET', path);
     const item: DeserializedItem = unserializeItem(res.body);
-    if (item.typeId !== remote.type_) {
-      // Mismatched type marker; skip rather than corrupt the local store.
-      return;
-    }
     const raw: PropRecord = item.raw;
-    if (raw['id'] === undefined || raw['id'] === null || raw['id'] === '') {
-      raw['id'] = remote.id;
-    }
 
     if (item.typeId === ItemType.Note) {
       await noteRepo.upsert(recordToNote(raw), false);
@@ -348,7 +416,10 @@ export class Synchronizer {
       if (noteId !== '' && tagId !== '') {
         await noteTagRepo.add(noteId, tagId, false);
       }
+      return;
     }
+    // Unknown type: leave the item alone — server-driven types like Resource
+    // are not yet supported end-to-end.
   }
 
   private async deleteLocalByType(itemType: number, id: string): Promise<void> {
