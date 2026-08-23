@@ -17,23 +17,27 @@
 | SQLite 表结构 | 按 `packages/lib/JoplinDatabase.ts` 1:1 复刻，官方客户端导出的数据可直接读 |
 | 条目序列化格式 | 复刻 `BaseItem.serialize()` 的 `title\n\nbody\n\nkey: value…type_: N` 文本格式 |
 | 同步协议 | 实现 Joplin Server REST（`api/sessions` / `api/items` / delta 增量游标 / batch_delete） |
-| Markdown 渲染 | 手写扫描器（ArkTS 不支持 `String.replace` 回调，无法直接移植 marked） |
+| Markdown 渲染 | 手写扫描器产出 HTML（ArkTS 不支持 `String.replace` 回调，无法直接移植 marked），交 ArkWeb 渲染 |
 
 也就是说：**用官方 Joplin 桌面端 + 自建 Joplin Server，可以和本应用双向同步。**
 
 ## 功能
 
-- 笔记本（folders）树形组织、增删
-- 笔记的创建 / 编辑 / 删除，Markdown 正文
-- 标签（tags）管理与按标签筛选
-- 全文搜索（标题 + 正文）
-- Markdown 预览（标题、列表、任务清单、行内代码、粗体/斜体/删除线、链接、`:/resourceId` 资源引用）
-- 与 Joplin Server 双向同步（增量 delta + 冲突时间戳判定）
-- 数据本地落盘 SQLite，支持系统级备份（`backup_config.json`）
+- **简体中文界面**：全应用中文化（集中式 `I18n` 字符串表）
+- **笔记本**：树形组织、新建、删除（级联删除其中笔记）、侧栏显示每个笔记本的笔记数
+- **笔记**：创建 / 编辑 / 删除，Markdown 正文
+- **标签**：管理、附加到笔记、按标签筛选
+- **全文搜索**：标题 + 正文
+- **Markdown 编辑**：工具栏快捷插入（粗体 / 斜体 / 删除线 / 标题 / 列表 / 待办 / 行内代码 / 代码块 / 链接 / 图片）
+- **Markdown 预览**：Web 真实渲染（标题、列表、任务清单、代码块、粗斜体、删除线、引用、分割线、链接、**图片内嵌显示**）
+- **附件**：图片在预览内嵌显示；PDF 等文件附件以卡片呈现，点击调起系统默认查看器打开（blob 按需下载并本地缓存）
+- **回收站**：同步 `deleted_time`，「全部笔记」与搜索自动隐藏已删笔记，「回收站」笔记本内可见
+- **同步**：与 Joplin Server 双向同步（delta 增量游标 + 冲突时间戳 + 删除上报 `batch_delete` + 网络失败自动重试）
+- **本地存储**：SQLite 落盘，支持系统级备份（`backup_config.json`）
 
 ## 截图
 
-> 待补充（当前版本刚打通首个可安装 HAP）
+> 待补充（功能已基本完整，待真机截图）
 
 ## 快速开始
 
@@ -79,58 +83,90 @@ bash scripts/dev-build.sh release
 
 ```
 entry/src/main/ets/
+├── common/
+│   └── I18n.ets                  # 中文字符串表（集中式 i18n）
 ├── core/
 │   ├── db/
-│   │   ├── Database.ets          # Joplin 兼容 schema + 迁移
-│   │   └── Query.ets             # 轻量查询封装
+│   │   ├── Database.ets          # Joplin 兼容 schema + 版本化迁移
+│   │   └── Query.ets             # 轻量查询封装（错误附带 SQL 片段）
 │   ├── models/Entities.ets       # Note/Folder/Tag/Resource + 工厂函数
-│   ├── services/Repositories.ets # 仓储层，带 track 标志避免同步回环
+│   ├── services/
+│   │   ├── Repositories.ets      # 仓储层，带 track 标志避免同步回环
+│   │   └── ResourceCache.ets     # 附件 blob 缓存 + 图片内嵌 + 系统打开
 │   ├── sync/
-│   │   ├── ItemSerializer.ets    # Joplin 条目文本格式 编/解码
-│   │   ├── JoplinApi.ets         # Joplin Server REST 客户端
+│   │   ├── ItemSerializer.ets    # Joplin 条目文本格式 编/解码（防御式）
+│   │   ├── JoplinApi.ets         # Joplin Server REST 客户端（含 blob 下载）
 │   │   └── Synchronizer.ets      # 同步主循环（上传→删除→拉取 delta）
-│   ├── markdown/MarkdownRenderer.ets  # 手写 Markdown 扫描器
+│   ├── markdown/MarkdownRenderer.ets  # 手写 Markdown 扫描器 → HTML
 │   └── utils/                    # ID 生成、Joplin 时间格式、常量
 ├── viewmodel/
-│   ├── AppStore.ets              # 全局状态
+│   ├── AppStore.ets              # 全局状态 + 笔记本笔记数缓存
 │   └── RouteParams.ets           # 类型化路由参数
 └── pages/
     ├── Index.ets                 # 主页：侧栏（笔记本/标签）+ 笔记列表
-    ├── NoteEditor.ets            # 编辑器 + 预览 + 标签
+    ├── NoteEditor.ets            # 编辑器 + Markdown 工具栏 + Web 预览 + 附件
     ├── NoteList.ets              # 按笔记本/标签筛选的列表
     ├── NoteSearch.ets            # 全文搜索
     ├── TagList.ets               # 标签管理
     └── Settings.ets              # 同步配置
 ```
 
-约 3500 行 ArkTS。
+约 4700 行 ArkTS。
 
 ## 同步兼容性说明
 
-- **已实现**：notes / folders / tags / note_tags 的双向同步，delta 增量游标持久化，本地删除上报（`batch_delete`）
-- **未实现**：E2EE 端到端加密、resources 二进制附件上传下载、共享笔记本、修订历史
-- 与官方客户端混用时，请先在桌面端做一次完整同步，再让本应用接入同一 Joplin Server
+- **已实现**：notes / folders / tags / note_tags 的双向同步，delta 增量游标持久化，本地删除上报（`batch_delete`），resources 附件**元数据同步 + blob 按需下载**（图片内嵌、文件系统打开），回收站（`deleted_time`）同步，网络瞬时失败自动重试。
+- **未实现**：E2EE 端到端加密、本地**新建**附件并上传 blob、共享笔记本、修订历史、冲突笔记可视化合并。
+- 与官方客户端混用时，请先在桌面端做一次完整同步，再让本应用接入同一 Joplin Server；若同步异常，可在设置里点「强制全量重新同步」清空游标重来。
 
 > ⚠️ 早期版本，请勿作为唯一数据副本。建议先在测试 Joplin Server 上验证。
+
+### 同步协议踩坑记录（移植参考）
+
+| 现象 | 根因 | 解法 |
+|---|---|---|
+| `Invalid path format: root:/delta` | delta 端点是 `api/items/root:/:/delta`（中间两个冒号） | 按官方 `file-api-driver-joplinServer.ts` 拼接 |
+| `Not found: root:/<id>:` | item body 要走 `/content` 后缀，裸 `:id` 只返回元数据 | 用服务端 `item_name` 拼 `api/items/root:/<name>:/content` |
+| `Missing required property: type_` | 防御式 `unserializeItem` 缺 `type_` 时返回 null 而非抛错 | 传入 `fallbackTypeId`，单条失败跳过不中断整批 |
+| `Could not parse form (1): no parser found` | 上传 PUT body 发 `text/plain`，服务端 `formidable` 不识别 | 改 `application/octet-stream`（与官方一致） |
+| `Failed to receive data from the peer` | 网络层瞬时失败（代理切断 / CDN RST） | 传输层错误线性退避重试，HTTP 非 2xx 直接抛 |
+| `SQLite: Insert failed` | 加列迁移被 `if (stored!=='')` 守卫跳过 + 索引先于 ALTER | 版本号 +1 强制重迁移，迁移幂等无条件跑 |
 
 ## 与官方 Joplin 的差异
 
 | | 官方移动端 | joplin-hap |
 |---|---|---|
 | 技术栈 | React Native | ArkTS / ArkUI 原生 |
-| Markdown 渲染 | marked + WebView | 手写扫描器 → 纯文本/结构化预览 |
+| Markdown 渲染 | marked + WebView | 手写扫描器 → HTML → ArkWeb 渲染 |
 | 加密 | 支持 E2EE | 暂不支持 |
-| 附件 | 支持 | 暂不支持 |
+| 附件 | 支持 | 图片内嵌 + 文件系统打开（**暂不支持本地新建上传**） |
+| 回收站 | 支持 | 支持（`deleted_time` 同步） |
 | 插件 | 支持 | 不支持 |
 
 ## 路线图
 
-- [ ] Resources 附件上传/下载
+- [x] Resources 附件下载 / 图片内嵌预览 / 文件系统打开
+- [x] Markdown 富文本渲染（Web 组件渲染 HTML）
+- [x] 回收站同步
+- [ ] 本地新建附件并上传 blob
 - [ ] E2EE 端到端加密
-- [ ] Markdown 富文本渲染（ArkUI 组件树而非纯文本）
 - [ ] 笔记本拖拽排序、嵌套笔记本 UI
 - [ ] 待办（is_todo）专用视图
 - [ ] 冲突笔记的可视化处理
+- [ ] `@ohos.router` → `Navigation` + `NavPathStack` 迁移（API 24 已弃用 router）
+
+## 更新日志
+
+**2026-08-23**（首个端到端打通 → 功能基本完整）
+
+- **首个可运行版本**：ArkTS/ArkUI 从零重写数据模型、SQLite 仓储、Joplin Server 同步协议，真机可安装运行。
+- **同步协议修复链**：delta 端点路径 → item body 走 `/content` → 防御式 `unserializeItem`（`type_` 缺失容错）→ GET 不带 `Content-Type` → 上传改 `application/octet-stream` → 网络失败自动重试。
+- **中文界面**：集中式 `I18n` 字符串表，6 个页面全中文化。
+- **编辑与预览**：Markdown 格式化工具栏；预览升级为 Web 真实渲染（含图片内嵌）。
+- **附件**：Resource 元数据同步 + blob 按需下载缓存；图片内嵌显示；PDF/文件点击调起系统查看器。
+- **回收站**：`deleted_time` 字段 + 数据库版本化迁移，全部笔记隐藏已删、回收站可见。
+- **删除**：笔记 / 笔记本手动删除（笔记本级联删除其中笔记），删除随同步上报。
+- **关键排障**：Web 预览 `src=about:blank` 与 `loadData` 竞态导致空白 → 改响应式 src 单一导航；数据库迁移守卫导致 `deleted_time` 永久缺列 → 版本号强制重迁移。
 
 ## 许可
 
