@@ -127,13 +127,20 @@ struct NoteEditor {
           Web({ src: 'about:blank', controller: this.webController })
             .javaScriptAccess(true)
             .domStorageAccess(true)
+            .imageAccess(true)
+            .fileAccess(true)
+            .onlineImageAccess(true)
             .layoutWeight(1)
             .width('100%')
             .onControllerAttached(() => {
               this.webReady = true;
+              console.info('[joplin-hap] web controller attached');
               if (this.previewHtml !== '') {
                 this.webController.loadData(this.previewHtml, 'text/html', 'utf-8');
               }
+            })
+            .onPageEnd(() => {
+              console.info('[joplin-hap] web preview page loaded');
             })
           if (this.previewLoading) {
             Column() {
@@ -327,10 +334,13 @@ struct NoteEditor {
     const rawHtml: string = this.body === ''
       ? '<p style="color:#9A9A9A">该笔记暂无内容</p>'
       : markdownToHtml(this.body);
+    const hasImg: boolean = rawHtml.indexOf('data-resource-id') >= 0;
+    console.info(`[joplin-hap] renderPreview: body ${this.body.length} chars, html ${rawHtml.length} chars, hasResourceImg=${hasImg}`);
     resolveImagesInHtml(rawHtml)
       .then((resolved: string) => {
         this.previewHtml = previewTemplate(resolved);
         this.previewLoading = false;
+        console.info(`[joplin-hap] renderPreview: resolved html ${this.previewHtml.length} chars, webReady=${this.webReady}`);
         if (this.webReady) {
           this.webController.loadData(this.previewHtml, 'text/html', 'utf-8');
         }

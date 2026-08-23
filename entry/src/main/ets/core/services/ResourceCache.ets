@@ -103,8 +103,10 @@ async function loadBlobBase64(resourceId: string): Promise<string> {
   }
 
   if (buffer === null) {
+    console.info(`[resource] cache miss, downloading blob: ${resourceId}`);
     const api: JoplinApi = await buildApi();
     const downloaded: ArrayBuffer = await api.getResourceBlob(resourceId);
+    console.info(`[resource] downloaded ${resourceId}: ${downloaded.byteLength} bytes`);
     try {
       const file = fs.openSync(path, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
       fs.writeSync(file.fd, downloaded);
@@ -113,11 +115,15 @@ async function loadBlobBase64(resourceId: string): Promise<string> {
       console.warn(`[resource] cache write failed for ${resourceId}: ${(e as Error).message}`);
     }
     buffer = downloaded;
+  } else {
+    console.info(`[resource] cache hit ${resourceId}: ${buffer.byteLength} bytes`);
   }
 
   const base64Helper = new util.Base64Helper();
   const bytes: Uint8Array = new Uint8Array(buffer);
-  return base64Helper.encodeToStringSync(bytes);
+  const b64: string = base64Helper.encodeToStringSync(bytes);
+  console.info(`[resource] base64 ${resourceId}: ${b64.length} chars`);
+  return b64;
 }
 
 // 返回可直接放进 <img src="..."> 的 data URI；失败返回 ''。
@@ -125,12 +131,15 @@ export async function getResourceDataUri(resourceId: string): Promise<string> {
   try {
     const res: Resource | null = await resourceRepo.get(resourceId);
     const mime: string = guessMime(res, resourceId);
+    console.info(`[resource] dataUri ${resourceId}: mime=${mime} meta=${res === null ? 'MISSING' : 'ok'}`);
     if (!isImageMime(mime)) {
       // 非图片（PDF 等）不内嵌，由预览层单独处理成附件卡片。
       return '';
     }
     const base64: string = await loadBlobBase64(resourceId);
-    return `data:${mime};base64,${base64}`;
+    const uri: string = `data:${mime};base64,${base64}`;
+    console.info(`[resource] dataUri ${resourceId}: ready, ${uri.length} chars`);
+    return uri;
   } catch (e) {
     console.warn(`[resource] dataUri failed for ${resourceId}: ${(e as Error).message}`);
     return '';
@@ -155,14 +164,18 @@ export async function resolveImagesInHtml(html: string): Promise<string> {
   let out: string = html;
   let idx: number = out.indexOf(marker);
   let guard: number = 0;
+  let found: number = 0;
+  let images: number = 0;
   while (idx >= 0 && guard < 500) {
     guard += 1;
+    found += 1;
     const idStart: number = idx + marker.length;
     const idEnd: number = out.indexOf('"', idStart);
     if (idEnd < 0) {
       break;
     }
     const resourceId: string = out.substring(idStart, idEnd);
+    console.info(`[resource] resolve #${found}: id=${resourceId}`);
     const tagEnd: number = out.indexOf('/>', idEnd);
     if (tagEnd < 0) {
       break;
@@ -183,6 +196,7 @@ export async function resolveImagesInHtml(html: string): Promise<string> {
     const dataUri: string = await getResourceDataUri(resourceId);
     let replacement: string;
     if (dataUri !== '') {
+      images += 1;
       replacement = `<img src="${dataUri}" alt="${alt}"/>`;
     } else {
       const info: Resource | null = await getResourceInfo(resourceId);
@@ -198,5 +212,6 @@ export async function resolveImagesInHtml(html: string): Promise<string> {
     out = out.substring(0, idx) + replacement + out.substring(tagEnd + 2);
     idx = out.indexOf(marker, idx + replacement.length);
   }
+  console.info(`[resource] resolve done: ${found} img tag(s), ${images} embedded as image, ${found - images} as attachment card`);
   return out;
 }
