@@ -243,13 +243,30 @@ export class FolderRepository {
     return folder;
   }
 
+  // 删除笔记本时，连同其中所有笔记一起删除（含 note_tags 和 sync 删除标记），
+  // 与桌面端 Joplin 的删除行为一致。
   async delete(id: string, track: boolean = true): Promise<void> {
+    // 1. 找出该笔记本下的所有笔记
+    const noteRows: Row[] = await queryAll('SELECT id FROM notes WHERE parent_id = ?', [id]);
+    // 2. 批量删除笔记（SQL 层面一次删完）
+    await exec('DELETE FROM notes WHERE parent_id = ?', [id]);
+    // 3. 逐条清理 note_tags 并记录 sync 删除标记
+    for (const row of noteRows) {
+      const noteId: string = String(row['id'] ?? '');
+      if (noteId === '') {
+        continue;
+      }
+      await exec('DELETE FROM note_tags WHERE note_id = ?', [noteId]);
+      if (track) {
+        await recordDeletion(ItemType.Note, noteId);
+      }
+    }
+    // 4. 删除笔记本本身
     await exec('DELETE FROM folders WHERE id = ?', [id]);
-    // Reparent orphaned notes to the root so they are not lost.
-    await exec('UPDATE notes SET parent_id = ? WHERE parent_id = ?', ['', id]);
     if (track) {
       await recordDeletion(ItemType.Folder, id);
     }
+    console.info(`[joplin-hap] folderRepo.delete: folder ${id} + ${noteRows.length} note(s) deleted`);
   }
 }
 
