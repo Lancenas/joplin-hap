@@ -1,6 +1,7 @@
 // Top-level observable store that backs the UI. We keep it small and explicit;
 // the goal is to wire the pages to a single source of truth without pulling
 // in a full state-management library.
+import { I18n } from '../common/I18n';
 import { Folder, Note, Tag } from '../core/models/Entities';
 import { folderRepo, noteRepo, settingsRepo, tagRepo } from '../core/services/Repositories';
 
@@ -25,6 +26,8 @@ export class AppStore {
   syncDeleted: number = 0;
   searchQuery: string = '';
   totalNotes: number = 0;
+  // 每个笔记本的笔记数缓存，key = folder.id。刷新 folders 时一并更新。
+  folderNoteCounts: Record<string, number> = {};
 
   async refreshAll(): Promise<void> {
     await this.refreshFolders();
@@ -34,6 +37,13 @@ export class AppStore {
 
   async refreshFolders(): Promise<void> {
     this.folders = await folderRepo.list();
+    // 同时刷新每个笔记本的笔记数，供侧栏显示。
+    const counts: Record<string, number> = {};
+    for (const f of this.folders) {
+      counts[f.id] = await noteRepo.countByFolder(f.id);
+    }
+    this.folderNoteCounts = counts;
+    console.info(`[joplin-hap] refreshFolders: ${this.folders.length} folder(s), totalNotes=${this.totalNotes}`);
   }
 
   async refreshTags(): Promise<void> {
@@ -78,7 +88,7 @@ export class AppStore {
   folderTitle(id: string): string {
     for (const f of this.folders) {
       if (f.id === id) {
-        return f.title === '' ? 'Untitled' : f.title;
+        return f.title === '' ? I18n.untitledNotebook : f.title;
       }
     }
     return '';
@@ -96,13 +106,13 @@ export class AppStore {
   currentTitle(): string {
     if (this.selectedTagId !== '') {
       const t: string = this.tagTitle(this.selectedTagId);
-      return t === '' ? 'Tag' : `# ${t}`;
+      return t === '' ? I18n.tagsTitle : `# ${t}`;
     }
     if (this.selectedFolderId === '') {
-      return 'All notes';
+      return I18n.notesTitle;
     }
     const f: string = this.folderTitle(this.selectedFolderId);
-    return f === '' ? 'Notebook' : f;
+    return f === '' ? I18n.notebooksTitle : f;
   }
 
   async loadSyncConfig(): Promise<void> {

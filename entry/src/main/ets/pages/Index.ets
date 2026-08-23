@@ -131,11 +131,19 @@ struct Index {
         ForEach(this.store.folders, (folder: Folder) => {
           ListItem() {
             Row() {
+              Text('📁')
+                .fontSize(14)
+                .margin({ right: 6 })
               Text(folder.title === '' ? I18n.untitledNotebook : folder.title)
                 .layoutWeight(1)
                 .fontSize(14)
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
+              // 笔记数（参照桌面端侧栏）
+              Text(`${this.store.folderNoteCounts[folder.id] ?? 0}`)
+                .fontSize(12)
+                .fontColor('#9A9A9A')
+                .margin({ right: 4 })
               if (this.store.selectedFolderId === folder.id) {
                 Text('•').fontColor('#1F58B8').fontSize(18)
               }

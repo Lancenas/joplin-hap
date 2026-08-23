@@ -184,6 +184,13 @@ export class Synchronizer {
       this.report(new SyncProgress(SyncPhase.Delta, 'Fetching remote changes…', result.pushed, 0, result.deleted));
       result.pulled = await this.pullDelta();
 
+      // Post-sync diagnostic: verify local DB state matches expectations.
+      const folderRow: Row | null = await queryOne('SELECT COUNT(*) AS c FROM folders', []);
+      const noteRow: Row | null = await queryOne('SELECT COUNT(*) AS c FROM notes', []);
+      const folderCount: number = folderRow === null ? 0 : Number(folderRow['c'] ?? 0);
+      const noteCount: number = noteRow === null ? 0 : Number(noteRow['c'] ?? 0);
+      console.info(`[sync] done: pushed=${result.pushed} pulled=${result.pulled} deleted=${result.deleted}, local: ${folderCount} folder(s), ${noteCount} note(s)`);
+
       this.report(new SyncProgress(SyncPhase.Done, 'Sync complete',
         result.pushed, result.pulled, result.deleted));
     } catch (e) {
@@ -350,6 +357,22 @@ export class Synchronizer {
           this.report(new SyncProgress(SyncPhase.Delta,
             `Failed to apply ${remote.id}: ${(e as Error).message}`, 0, pulled, 0, totalKnown, pulled));
         }
+      }
+
+      // Diagnostic: count applied items by type so we can verify folders are pulled.
+      if (items.length > 0) {
+        const typeCounts: Record<string, number> = {};
+        for (const remote of items) {
+          const t: string = String(remote.item_type ?? remote.type_ ?? '?');
+          typeCounts[t] = (typeCounts[t] ?? 0) + 1;
+        }
+        const parts: string[] = [];
+        const keys: string[] = Object.keys(typeCounts);
+        for (const k of keys) {
+          const label: string = k === '1' ? 'Note' : k === '2' ? 'Folder' : k === '4' ? 'Resource' : k === '5' ? 'Tag' : k === '7' ? 'NoteTag' : k;
+          parts.push(`${label}:${typeCounts[k]}`);
+        }
+        console.info(`[sync] delta batch: ${items.length} item(s) — ${parts.join(', ')}`);
       }
 
       const nextCursor: string = parsed.cursor ?? '';
