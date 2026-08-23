@@ -1,0 +1,12 @@
+{
+  "modelVersion": "6.0.1",
+  "dependencies": {},
+  "execution": {},
+  "logging": {
+    "level": "info"
+  },
+  "debugging": {},
+  "nodeOptions": {
+    "maxOldSpaceSize": 4096
+  }
+}

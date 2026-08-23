@@ -1,0 +1,40 @@
+{
+  "app": {
+    // 签名配置不入库：证书路径与口令因机器而异。
+    // 两种方式任选：
+    //   1) DevEco Studio: File > Project Structure > Signing Configs > 勾选自动签名
+    //   2) 命令行: bash scripts/dev-build.sh  （自动从 ~/.ohos/config 注入本机调试证书）
+    "signingConfigs": [],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "targetSdkVersion": "6.1.1(24)",
+        "compatibleSdkVersion": "6.1.1(24)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      { "name": "debug" },
+      { "name": "release" }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": ["default"]
+        }
+      ]
+    }
+  ]
+}

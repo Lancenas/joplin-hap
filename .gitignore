@@ -1,0 +1,19 @@
+node_modules/
+oh_modules/
+local.properties
+.idea/
+build/
+.hvigor/
+*.log
+.DS_Store
+hvigor/wrapper/
+
+# 构建产物
+dist/
+
+# 本地签名快照（由 scripts/dev-build.sh 自动生成/还原，含本机证书路径与口令）
+build-profile.json5.bak
+build-profile.local.json5
+
+# WorkBuddy 工作区数据
+.workbuddy/

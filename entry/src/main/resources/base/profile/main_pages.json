@@ -1,0 +1,10 @@
+{
+  "src": [
+    "pages/Index",
+    "pages/NoteEditor",
+    "pages/NoteSearch",
+    "pages/Settings",
+    "pages/TagList",
+    "pages/NoteList"
+  ]
+}

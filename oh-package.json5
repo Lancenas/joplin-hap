@@ -1,0 +1,12 @@
+{
+  "modelVersion": "6.0.1",
+  "name": "joplin-hap",
+  "version": "0.1.0",
+  "description": "Joplin for HarmonyOS NEXT — an ArkTS/ArkUI port of laurent22/joplin.",
+  "author": "Lancenas",
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.21"
+  }
+}

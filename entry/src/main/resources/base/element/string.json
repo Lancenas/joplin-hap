@@ -1,0 +1,11 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "Joplin for HarmonyOS NEXT" },
+    { "name": "EntryAbility_desc", "value": "Joplin note-taking on HarmonyOS" },
+    { "name": "EntryAbility_label", "value": "Joplin HAP" },
+    { "name": "perm_internet", "value": "Sync notes with the Joplin Server" },
+    { "name": "perm_network", "value": "Detect online state for sync" },
+    { "name": "perm_media", "value": "Attach images and files to notes" },
+    { "name": "perm_persist", "value": "Keep the local database available across reboots" }
+  ]
+}

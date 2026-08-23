@@ -1,0 +1,10 @@
+{
+  "modelVersion": "6.0.1",
+  "name": "entry",
+  "version": "0.1.0",
+  "description": "Joplin HAP entry module.",
+  "main": "Index.ets",
+  "author": "Lancenas",
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {}
+}
