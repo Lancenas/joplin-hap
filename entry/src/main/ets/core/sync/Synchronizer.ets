@@ -403,7 +403,11 @@ export class Synchronizer {
     }
 
     const path: string = itemContentPath(itemName);
-    const res = await this.api.exec('GET', path);
+    // Per-item content fetch: retry transient transport failures (TLS reset,
+    // proxy timeout, …) up to 3 attempts with linear backoff. pullDelta's
+    // outer try/catch already isolates a hard failure for one item so the
+    // rest of the batch still gets applied.
+    const res = await this.api.exec('GET', path, null, null, null, 2, 600);
     console.info(`[sync] GET ${path} → ${res.status}, body ${res.body.length}B, head: ${res.body.slice(0, 120)}`);
     const item: DeserializedItem | null = unserializeItem(res.body, remoteType);
     if (item === null) {

@@ -172,7 +172,9 @@ export class JoplinApi {
     path: string,
     query: QueryMap | null = null,
     body: string | null = null,
-    extraHeaders: HeaderMap | null = null
+    extraHeaders: HeaderMap | null = null,
+    retries: number = 0,
+    retryDelayMs: number = 500
   ): Promise<ApiResponse> {
     if (path !== 'api/sessions' && this.sessionId === '') {
       throw new ApiError(401, 'notAuthenticated', 'Not authenticated: call session() first');
@@ -205,27 +207,60 @@ export class JoplinApi {
       extraData: body === null ? '' : body,
     };
 
-    const request = http.createHttp();
-    try {
-      const response: http.HttpResponse = await request.request(url, opts);
-      const status: number = response.responseCode;
-      const text: string = typeof response.result === 'string' ? response.result as string : '';
-      if (status >= 200 && status < 300) {
-        const ok: ApiResponse = { status: status, body: text };
-        return ok;
+    const maxAttempts: number = 1 + (retries > 0 ? retries : 0);
+    let attempt: number = 0;
+    let lastErr: ApiError | null = null;
+    while (attempt < maxAttempts) {
+      attempt += 1;
+      const request = http.createHttp();
+      try {
+        const response: http.HttpResponse = await request.request(url, opts);
+        const status: number = response.responseCode;
+        const text: string = typeof response.result === 'string' ? response.result as string : '';
+        if (status >= 200 && status < 300) {
+          if (attempt > 1) {
+            console.info(`[net] ${method} ${path} recovered on attempt ${attempt}/${maxAttempts}`);
+          }
+          const ok: ApiResponse = { status: status, body: text };
+          return ok;
+        }
+        // Non-2xx HTTP responses are explicit server answers — do NOT retry,
+        // surface them to the user as-is.
+        const data: ErrorPayload = parseErrorPayload(text);
+        throw new ApiError(status, data.error ?? 'http', data.message ?? text);
+      } catch (err) {
+        if (err instanceof ApiError) {
+          throw err;
+        }
+        // Transport-level failure (TLS, connection reset, read failure, …) —
+        // these can be transient, so retry with linear backoff.
+        const be: BusinessError = err as BusinessError;
+        const beCode: string = String(be.code ?? '?');
+        const beMsg: string = be.message ?? 'Network request failed';
+        lastErr = new ApiError(-1, 'network', `${method} ${path}: ${beMsg}`);
+        console.warn(`[net] ${method} ${path} attempt ${attempt}/${maxAttempts} failed: code=${beCode} msg=${beMsg}`);
+        if (attempt < maxAttempts) {
+          await delay(retryDelayMs * attempt);
+        }
+      } finally {
+        try {
+          request.destroy();
+        } catch (e) {
+          // The request object may already be invalid; nothing to do.
+        }
       }
-      const data: ErrorPayload = parseErrorPayload(text);
-      throw new ApiError(status, data.error ?? 'http', data.message ?? text);
-    } catch (err) {
-      if (err instanceof ApiError) {
-        throw err;
-      }
-      const be: BusinessError = err as BusinessError;
-      throw new ApiError(-1, 'network', be.message ?? 'Network request failed');
-    } finally {
-      request.destroy();
     }
+    throw lastErr ?? new ApiError(-1, 'network', `${method} ${path} failed after ${maxAttempts} attempts`);
   }
+}
+
+// Local Promise-based sleep used between HTTP retries.
+function delay(ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setTimeout(() => {
+      resolve();
+    }, ms);
+  });
 }
 
 // A class (rather than an interface + literal) so JSON.stringify has a concrete
