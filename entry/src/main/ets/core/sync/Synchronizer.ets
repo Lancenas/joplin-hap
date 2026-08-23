@@ -25,7 +25,7 @@
 // quoted keys, and destructuring declarations are rejected — hence the classes
 // and the explicit index access below.
 import {
-  JoplinApi, HeaderMap, QueryMap, TEXT_MIME, DELTA_PATH,
+  JoplinApi, HeaderMap, QueryMap, DELTA_PATH,
   itemContentPath, itemMetadataPath,
 } from './JoplinApi';
 import {
@@ -134,9 +134,15 @@ function parseDelta(s: string): DeltaResponse {
   }
 }
 
-function textHeaders(): HeaderMap {
+// PUT /content uploads must use application/octet-stream (not text/plain).
+// The Joplin Server parses the body with `formidable`, which only recognises
+// multipart/form-data, application/x-www-form-urlencoded, and
+// application/octet-stream — text/plain triggers "no parser found".
+// The raw serialized Joplin item text is sent as the body; formidable treats
+// it as a file upload and the server reads it back from the temp file.
+function uploadHeaders(): HeaderMap {
   const h: HeaderMap = {};
-  h['Content-Type'] = TEXT_MIME;
+  h['Content-Type'] = 'application/octet-stream';
   return h;
 }
 
@@ -238,7 +244,7 @@ export class Synchronizer {
       if (note === null) {
         return;
       }
-      await this.api.exec('PUT', path, null, serializeNote(note), textHeaders());
+      await this.api.exec('PUT', path, null, serializeNote(note), uploadHeaders());
       return;
     }
 
@@ -247,7 +253,7 @@ export class Synchronizer {
       if (folder === null) {
         return;
       }
-      await this.api.exec('PUT', path, null, serializeFolder(folder), textHeaders());
+      await this.api.exec('PUT', path, null, serializeFolder(folder), uploadHeaders());
       return;
     }
 
@@ -256,7 +262,7 @@ export class Synchronizer {
       if (tag === null) {
         return;
       }
-      await this.api.exec('PUT', path, null, serializeTag(tag), textHeaders());
+      await this.api.exec('PUT', path, null, serializeTag(tag), uploadHeaders());
       return;
     }
 
@@ -275,7 +281,7 @@ export class Synchronizer {
         userCreatedTime: Number(row['user_created_time'] ?? 0),
         userUpdatedTime: Number(row['user_updated_time'] ?? 0),
       };
-      await this.api.exec('PUT', path, null, serializeNoteTag(noteTag), textHeaders());
+      await this.api.exec('PUT', path, null, serializeNoteTag(noteTag), uploadHeaders());
       return;
     }
 
