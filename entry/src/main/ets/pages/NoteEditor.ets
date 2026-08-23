@@ -4,7 +4,7 @@ import { I18n } from '../common/I18n';
 import { Note, Tag, newTag } from '../core/models/Entities';
 import { noteRepo, noteTagRepo, tagRepo } from '../core/services/Repositories';
 import { markdownToHtml, previewTemplate } from '../core/markdown/MarkdownRenderer';
-import { resolveImagesInHtml } from '../core/services/ResourceCache';
+import { AttachmentInfo, getNoteAttachments, openResourceWithSystem, resolveImagesInHtml } from '../core/services/ResourceCache';
 import { NoteRouteParams } from '../viewmodel/RouteParams';
 
 @Entry
@@ -22,6 +22,8 @@ struct NoteEditor {
   @State previewSrc: string = 'about:blank';
   @State selStart: number = 0;
   @State selEnd: number = 0;
+  @State attachments: AttachmentInfo[] = [];
+  @State openingAttachment: boolean = false;
 
   private noteId: string = '';
   private webController: webview.WebviewController = new webview.WebviewController();
@@ -53,8 +55,33 @@ struct NoteEditor {
         this.body = n.body;
         this.title = n.title;
         this.refreshTags();
+        this.refreshAttachments();
       })
       .catch((e: Error) => { this.status = `${I18n.errorTitle}：${e.message}`; });
+  }
+
+  private refreshAttachments(): void {
+    getNoteAttachments(this.body)
+      .then((list: AttachmentInfo[]) => { this.attachments = list; })
+      .catch((e: Error) => { console.error(`[joplin-hap] getNoteAttachments: ${e.message}`); });
+  }
+
+  // 点击附件卡片：下载（若未缓存）并用系统默认查看器打开。
+  private openAttachment(att: AttachmentInfo): void {
+    if (this.openingAttachment) {
+      return;
+    }
+    this.openingAttachment = true;
+    this.status = '正在打开附件…';
+    openResourceWithSystem(att.id, getContext(this))
+      .then((err: string) => {
+        this.openingAttachment = false;
+        this.status = err === '' ? '' : `${I18n.errorTitle}：${err}`;
+      })
+      .catch((e: Error) => {
+        this.openingAttachment = false;
+        this.status = `${I18n.errorTitle}：${e.message}`;
+      });
   }
 
   private refreshTags(): void {
@@ -119,6 +146,33 @@ struct NoteEditor {
         .margin({ left: 8, right: 8 })
         .backgroundColor(Color.Transparent)
         .onChange((v: string) => { this.title = v; })
+
+      // 文件附件区（PDF 等非图片）：点击用系统查看器打开
+      if (this.attachments.length > 0) {
+        Flex({ wrap: FlexWrap.Wrap }) {
+          ForEach(this.attachments, (att: AttachmentInfo) => {
+            if (!att.isImage) {
+              Row() {
+                Text('📎')
+                  .fontSize(13)
+                Text(att.title)
+                  .fontSize(13)
+                  .fontColor('#1F58B8')
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .margin({ left: 4 })
+              }
+              .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+              .backgroundColor('#EEF1F5')
+              .borderRadius(8)
+              .margin({ right: 8, bottom: 6 })
+              .onClick(() => { this.openAttachment(att); })
+            }
+          }, (att: AttachmentInfo) => att.id)
+        }
+        .width('100%')
+        .padding({ left: 12, right: 12, bottom: 4 })
+      }
 
       if (this.showPreview) {
         // Web 渲染真正的 Markdown（标题/加粗/列表/代码块/图片等）
