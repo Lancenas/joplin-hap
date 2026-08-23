@@ -1,8 +1,10 @@
 import router from '@ohos.router';
+import { webview } from '@kit.ArkWeb';
 import { I18n } from '../common/I18n';
 import { Note, Tag, newTag } from '../core/models/Entities';
 import { noteRepo, noteTagRepo, tagRepo } from '../core/services/Repositories';
-import { markdownToPlainText } from '../core/markdown/MarkdownRenderer';
+import { markdownToHtml, previewTemplate } from '../core/markdown/MarkdownRenderer';
+import { resolveImagesInHtml } from '../core/services/ResourceCache';
 import { NoteRouteParams } from '../viewmodel/RouteParams';
 
 @Entry
@@ -16,8 +18,15 @@ struct NoteEditor {
   @State tagInput: string = '';
   @State attachedTags: string[] = [];
   @State status: string = '';
+  @State previewLoading: boolean = false;
+  @State selStart: number = 0;
+  @State selEnd: number = 0;
 
   private noteId: string = '';
+  private webController: webview.WebviewController = new webview.WebviewController();
+  private webReady: boolean = false;
+  private previewHtml: string = '';
+  private textController: TextAreaController = new TextAreaController();
 
   aboutToAppear(): void {
     const params = router.getParams() as NoteRouteParams;
@@ -88,7 +97,12 @@ struct NoteEditor {
           .backgroundColor('#EEF1F5')
           .fontColor('#1F58B8')
           .margin({ right: 8 })
-          .onClick(() => { this.showPreview = !this.showPreview; })
+          .onClick(() => {
+            this.showPreview = !this.showPreview;
+            if (this.showPreview) {
+              this.renderPreview();
+            }
+          })
         Button(this.saving ? I18n.loading : I18n.editorSave)
           .height(32)
           .fontSize(13)
@@ -108,40 +122,86 @@ struct NoteEditor {
         .onChange((v: string) => { this.title = v; })
 
       if (this.showPreview) {
-        if (this.body === '') {
-          Column() {
-            Text(I18n.editorNoBody)
-              .fontSize(15)
-              .fontColor('#9A9A9A')
-          }
-          .layoutWeight(1)
-          .width('100%')
-          .justifyContent(FlexAlign.Center)
-        } else {
-          Scroll() {
-            Column() {
-              Text(markdownToPlainText(this.body))
-                .fontSize(15)
-                .lineHeight(24)
-                .width('100%')
-                .padding(16)
-                .textAlign(TextAlign.Start)
-            }
-            .alignItems(HorizontalAlign.Start)
+        // Web 渲染真正的 Markdown（标题/加粗/列表/代码块/图片等）
+        Stack() {
+          Web({ src: 'about:blank', controller: this.webController })
+            .javaScriptAccess(true)
+            .domStorageAccess(true)
+            .layoutWeight(1)
             .width('100%')
+            .onControllerAttached(() => {
+              this.webReady = true;
+              if (this.previewHtml !== '') {
+                this.webController.loadData(this.previewHtml, 'text/html', 'utf-8');
+              }
+            })
+          if (this.previewLoading) {
+            Column() {
+              LoadingProgress().width(36).height(36)
+              Text('渲染中…').fontSize(13).fontColor('#9A9A9A').margin({ top: 8 })
+            }
+            .width('100%')
+            .height('100%')
+            .justifyContent(FlexAlign.Center)
+            .backgroundColor('#FFFFFF')
           }
-          .layoutWeight(1)
-          .width('100%')
-          .align(Alignment.TopStart)
         }
+        .layoutWeight(1)
+        .width('100%')
       } else {
-        TextArea({ placeholder: I18n.editorBodyPlaceholder, text: this.body })
+        // Markdown 格式化工具栏
+        Scroll() {
+          Row({ space: 6 }) {
+            Button('B').fontSize(13).fontWeight(FontWeight.Bold).height(30)
+              .backgroundColor('#EEF1F5').fontColor('#3C3C3C')
+              .onClick(() => { this.wrapSelection('**', '**', '加粗'); })
+            Button('I').fontSize(13).fontStyle(FontStyle.Italic).height(30)
+              .backgroundColor('#EEF1F5').fontColor('#3C3C3C')
+              .onClick(() => { this.wrapSelection('*', '*', '斜体'); })
+            Button('S').fontSize(13).height(30)
+              .backgroundColor('#EEF1F5').fontColor('#3C3C3C')
+              .onClick(() => { this.wrapSelection('~~', '~~', '删除线'); })
+            Button('H').fontSize(13).fontWeight(FontWeight.Medium).height(30)
+              .backgroundColor('#EEF1F5').fontColor('#3C3C3C')
+              .onClick(() => { this.insertLinePrefix('## '); })
+            Button('• 列表').fontSize(12).height(30)
+              .backgroundColor('#EEF1F5').fontColor('#3C3C3C')
+              .onClick(() => { this.insertLinePrefix('- '); })
+            Button('☑ 待办').fontSize(12).height(30)
+              .backgroundColor('#EEF1F5').fontColor('#3C3C3C')
+              .onClick(() => { this.insertLinePrefix('- [ ] '); })
+            Button('<>').fontSize(12).height(30)
+              .backgroundColor('#EEF1F5').fontColor('#3C3C3C')
+              .onClick(() => { this.wrapSelection('`', '`', '代码'); })
+            Button('{ }').fontSize(12).height(30)
+              .backgroundColor('#EEF1F5').fontColor('#3C3C3C')
+              .onClick(() => { this.wrapSelection('\n```\n', '\n```\n', '代码块'); })
+            Button('🔗').fontSize(12).height(30)
+              .backgroundColor('#EEF1F5').fontColor('#3C3C3C')
+              .onClick(() => { this.wrapSelection('[', '](https://)', '链接文字'); })
+            Button('🖼').fontSize(12).height(30)
+              .backgroundColor('#EEF1F5').fontColor('#3C3C3C')
+              .onClick(() => { this.wrapSelection('![', '](:/资源ID)', '图片'); })
+          }
+          .padding({ left: 12, right: 12 })
+        }
+        .scrollable(ScrollDirection.Horizontal)
+        .scrollBar(BarState.Off)
+        .width('100%')
+        .height(40)
+        .align(Alignment.Start)
+
+        TextArea({ placeholder: I18n.editorBodyPlaceholder, text: this.body, controller: this.textController })
           .layoutWeight(1)
           .width('100%')
           .fontSize(15)
           .padding(12)
           .backgroundColor(Color.Transparent)
           .onChange((v: string) => { this.body = v; })
+          .onTextSelectionChange((start: number, end: number) => {
+            this.selStart = start;
+            this.selEnd = end;
+          })
       }
 
       if (this.status !== '') {
@@ -258,5 +318,64 @@ struct NoteEditor {
         this.refreshTags();
       })
       .catch((e: Error) => { this.status = `${I18n.attachTag}：${e.message}`; });
+  }
+
+  // 渲染预览：markdown → HTML，解析其中的资源图片（下载 + base64 内嵌），
+  // 再套 previewTemplate 的样式，最后交给 Web 组件。
+  private renderPreview(): void {
+    this.previewLoading = true;
+    const rawHtml: string = this.body === ''
+      ? '<p style="color:#9A9A9A">该笔记暂无内容</p>'
+      : markdownToHtml(this.body);
+    resolveImagesInHtml(rawHtml)
+      .then((resolved: string) => {
+        this.previewHtml = previewTemplate(resolved);
+        this.previewLoading = false;
+        if (this.webReady) {
+          this.webController.loadData(this.previewHtml, 'text/html', 'utf-8');
+        }
+      })
+      .catch((e: Error) => {
+        console.warn(`[joplin-hap] renderPreview resolve failed: ${e.message}`);
+        this.previewHtml = previewTemplate(rawHtml);
+        this.previewLoading = false;
+        if (this.webReady) {
+          this.webController.loadData(this.previewHtml, 'text/html', 'utf-8');
+        }
+      });
+  }
+
+  // 用 prefix/suffix 包裹当前选区；无选区时插入占位文本。
+  private wrapSelection(prefix: string, suffix: string, placeholder: string): void {
+    const s: number = Math.min(this.selStart, this.selEnd);
+    const e: number = Math.max(this.selStart, this.selEnd);
+    const selected: string = this.body.substring(s, e);
+    const inner: string = selected === '' ? placeholder : selected;
+    this.body = this.body.substring(0, s) + prefix + inner + suffix + this.body.substring(e);
+    const caret: number = s + prefix.length + inner.length + suffix.length;
+    setTimeout(() => {
+      try {
+        this.textController.caretPosition(caret);
+      } catch (err) {
+        // 光标复位失败无害，内容已插入。
+      }
+    }, 50);
+  }
+
+  // 在当前行行首插入前缀（标题 / 列表 / 待办）。
+  private insertLinePrefix(prefix: string): void {
+    const s: number = Math.min(this.selStart, this.selEnd);
+    const safeS: number = s < 0 ? 0 : s;
+    const nl: number = this.body.lastIndexOf('\n', safeS > 0 ? safeS - 1 : 0);
+    const lineStart: number = nl < 0 ? 0 : nl + 1;
+    this.body = this.body.substring(0, lineStart) + prefix + this.body.substring(lineStart);
+    const caret: number = safeS + prefix.length;
+    setTimeout(() => {
+      try {
+        this.textController.caretPosition(caret);
+      } catch (err) {
+        // ignore
+      }
+    }, 50);
   }
 }

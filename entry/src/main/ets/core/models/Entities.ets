@@ -44,6 +44,7 @@ export interface Note {
   sourceApplication: string;
   applicationData: string;
   order: number;
+  deletedTime: number;
   userCreatedTime: number;
   userUpdatedTime: number;
 }
@@ -146,6 +147,7 @@ export function newNote(parentId: string, title: string = '', body: string = '')
     sourceApplication: 'cn.lancenas.joplinhap',
     applicationData: '',
     order: now,
+    deletedTime: 0,
     userCreatedTime: now,
     userUpdatedTime: now,
   };

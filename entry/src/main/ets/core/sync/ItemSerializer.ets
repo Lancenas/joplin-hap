@@ -76,7 +76,7 @@ function buildSerialized(title: string, body: string, props: PropRecord, keys: s
 const NOTE_KEYS: string[] = [
   'id', 'parent_id', 'is_conflict', 'latitude', 'longitude', 'altitude',
   'author', 'source_url', 'is_todo', 'todo_due', 'todo_completed',
-  'source', 'source_application', 'application_data', 'order',
+  'source', 'source_application', 'application_data', 'order', 'deleted_time',
   'created_time', 'updated_time', 'user_created_time', 'user_updated_time',
   'encryption_cipher_text', 'encryption_applied', 'markup_language',
 ];
@@ -121,6 +121,7 @@ export function serializeNote(note: Note): string {
   props['source_application'] = note.sourceApplication;
   props['application_data'] = note.applicationData;
   props['order'] = note.order;
+  props['deleted_time'] = note.deletedTime;
   props['created_time'] = note.createdTime;
   props['updated_time'] = note.updatedTime;
   props['user_created_time'] = note.userCreatedTime;
@@ -331,6 +332,7 @@ export function recordToNote(raw: PropRecord): Note {
     sourceApplication: str(raw, 'source_application'),
     applicationData: str(raw, 'application_data'),
     order: num(raw, 'order'),
+    deletedTime: num(raw, 'deleted_time'),
     userCreatedTime: num(raw, 'user_created_time'),
     userUpdatedTime: num(raw, 'user_updated_time'),
   };

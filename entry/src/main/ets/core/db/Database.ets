@@ -43,6 +43,7 @@ const SCHEMA_STATEMENTS: string[] = [
     source_application TEXT NOT NULL DEFAULT '',
     application_data TEXT NOT NULL DEFAULT '',
     \`order\` INT NOT NULL DEFAULT 0,
+    deleted_time INT NOT NULL DEFAULT 0,
     user_created_time INT NOT NULL,
     user_updated_time INT NOT NULL
   )`,
@@ -52,6 +53,7 @@ const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS notes_is_conflict ON notes (is_conflict)`,
   `CREATE INDEX IF NOT EXISTS notes_is_todo ON notes (is_todo)`,
   `CREATE INDEX IF NOT EXISTS notes_order ON notes (\`order\`)`,
+  `CREATE INDEX IF NOT EXISTS notes_deleted_time ON notes (deleted_time)`,
 
   `CREATE TABLE IF NOT EXISTS tags (
     id TEXT PRIMARY KEY,
@@ -135,7 +137,13 @@ const SCHEMA_STATEMENTS: string[] = [
   )`
 ];
 
-const SCHEMA_VERSION = '1';
+const SCHEMA_VERSION = '2';
+
+// 列级迁移：v1 → v2 给 notes 表加 deleted_time 列（回收站）。
+// CREATE TABLE IF NOT EXISTS 不会给已存在的表加列，必须显式 ALTER TABLE。
+const MIGRATION_STATEMENTS: string[] = [
+  'ALTER TABLE notes ADD COLUMN deleted_time INT NOT NULL DEFAULT 0',
+];
 
 let storeInstance: relationalStore.RdbStore | null = null;
 let initPromise: Promise<relationalStore.RdbStore> | null = null;
@@ -146,6 +154,10 @@ let appContext: Context | null = null;
 
 export function bindAppContext(ctx: Context): void {
   appContext = ctx;
+}
+
+export function getAppContext(): Context {
+  return resolveContext();
 }
 
 function resolveContext(): Context {
@@ -175,6 +187,7 @@ async function runMigrations(store: relationalStore.RdbStore): Promise<void> {
   if (stored === SCHEMA_VERSION) {
     return;
   }
+  // 建表（含最新列定义，对新装直接生效）
   for (const stmt of SCHEMA_STATEMENTS) {
     try {
       await store.executeSql(stmt);
@@ -185,6 +198,17 @@ async function runMigrations(store: relationalStore.RdbStore): Promise<void> {
       const code: number = be.code;
       if (code !== 14800023 && code !== 14800031) {
         throw err as Error;
+      }
+    }
+  }
+  // 列级迁移（对老库补列；duplicate column 报错视为 benign）
+  if (stored !== '') {
+    for (const stmt of MIGRATION_STATEMENTS) {
+      try {
+        await store.executeSql(stmt);
+      } catch (err) {
+        // duplicate column name — already migrated, safe to ignore.
+        console.info(`[db] migration skip (likely applied): ${stmt}`);
       }
     }
   }

@@ -342,8 +342,10 @@ export function previewTemplate(html: string): string {
   ul, ol { padding-left: 1.4em; }
   a { color: #1F58B8; }
   hr { border: 0; border-top: 1px solid #e1e4e8; margin: 1em 0; }
-  img { max-width: 100%; height: auto; }
+  img { max-width: 100%; height: auto; border-radius: 6px; }
   input[type=checkbox] { transform: scale(1.1); margin-right: 4px; }
+  .attachment { display: inline-block; padding: 8px 12px; margin: 6px 0; background: #f3f4f6;
+    border: 1px solid #e1e4e8; border-radius: 8px; color: #1F58B8; font-size: 0.9em; }
 </style>
 </head>
 <body>${html}</body>

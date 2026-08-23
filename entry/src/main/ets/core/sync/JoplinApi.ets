@@ -82,6 +82,10 @@ export function itemMetadataPath(name: string): string {
 export function itemContentPath(name: string): string {
   return `${itemMetadataPath(name)}/content`;
 }
+// Resource 二进制 blob 独立存放在 `.resource/<id>` 路径下（与 <id>.md 元数据分开）。
+export function resourceBlobPath(resourceId: string): string {
+  return `api/items/root:/.resource/${resourceId}:/content`;
+}
 
 function buildUrl(base: string, path: string, query: QueryMap | null): string {
   const normBase: string = base.startsWith('http') ? base : `https://${base}`;
@@ -165,6 +169,46 @@ export class JoplinApi {
       // Best-effort — the local session is dropped regardless.
     }
     this.sessionId = '';
+  }
+
+  // 下载 Resource 二进制 blob（图片 / PDF / 附件）。与 exec 不同，响应用
+  // ARRAY_BUFFER 而非 STRING，避免二进制被当文本解码损坏。
+  async getResourceBlob(resourceId: string): Promise<ArrayBuffer> {
+    if (this.sessionId === '') {
+      throw new ApiError(401, 'notAuthenticated', 'Not authenticated: call session() first');
+    }
+    const url: string = buildUrl(this.baseUrl, resourceBlobPath(resourceId), null);
+    const headers: HeaderMap = {};
+    headers[API_AUTH] = this.sessionId;
+    const opts: http.HttpRequestOptions = {
+      method: http.RequestMethod.GET,
+      header: headers,
+      connectTimeout: 15000,
+      readTimeout: 60000,
+      expectDataType: http.HttpDataType.ARRAY_BUFFER,
+    };
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(url, opts);
+      const status: number = response.responseCode;
+      if (status >= 200 && status < 300) {
+        const buf = response.result as ArrayBuffer;
+        return buf;
+      }
+      throw new ApiError(status, 'http', `Resource blob fetch failed: HTTP ${status}`);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      const be: BusinessError = err as BusinessError;
+      throw new ApiError(-1, 'network', `getResourceBlob ${resourceId}: ${be.message ?? 'Network request failed'}`);
+    } finally {
+      try {
+        request.destroy();
+      } catch (e) {
+        // ignore
+      }
+    }
   }
 
   async exec(

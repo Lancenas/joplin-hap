@@ -33,6 +33,7 @@ function rowToNote(row: Row): Note {
     sourceApplication: String(row['source_application'] ?? ''),
     applicationData: String(row['application_data'] ?? ''),
     order: Number(row['order'] ?? 0),
+    deletedTime: Number(row['deleted_time'] ?? 0),
     userCreatedTime: Number(row['user_created_time'] ?? 0),
     userUpdatedTime: Number(row['user_updated_time'] ?? 0),
   };
@@ -109,6 +110,8 @@ function mapTags(rows: Row[]): Tag[] {
 }
 
 export class NoteRepository {
+  // listByFolder 返回该笔记本下所有笔记（含回收站内的已删笔记），
+  // 这样「回收站」笔记本能正常显示其内容。回收站过滤只在「全部笔记」/搜索里做。
   async listByFolder(folderId: string, limit: number = 200, offset: number = 0): Promise<Note[]> {
     const rows: Row[] = await queryAll(
       'SELECT * FROM notes WHERE parent_id = ? AND is_conflict = 0 ORDER BY updated_time DESC LIMIT ? OFFSET ?',
@@ -117,9 +120,19 @@ export class NoteRepository {
     return mapNotes(rows);
   }
 
+  // 「全部笔记」排除回收站（deleted_time > 0）的笔记，与 Joplin 桌面端一致。
   async listRecent(limit: number = 200): Promise<Note[]> {
     const rows: Row[] = await queryAll(
-      'SELECT * FROM notes WHERE is_conflict = 0 ORDER BY updated_time DESC LIMIT ?',
+      'SELECT * FROM notes WHERE is_conflict = 0 AND deleted_time = 0 ORDER BY updated_time DESC LIMIT ?',
+      [limit]
+    );
+    return mapNotes(rows);
+  }
+
+  // 回收站视图：只列出已删除（deleted_time > 0）的笔记。
+  async listTrashed(limit: number = 500): Promise<Note[]> {
+    const rows: Row[] = await queryAll(
+      'SELECT * FROM notes WHERE deleted_time > 0 ORDER BY deleted_time DESC LIMIT ?',
       [limit]
     );
     return mapNotes(rows);
@@ -137,7 +150,7 @@ export class NoteRepository {
     }
     const like: string = `%${term}%`;
     const rows: Row[] = await queryAll(
-      'SELECT * FROM notes WHERE title LIKE ? OR body LIKE ? ORDER BY updated_time DESC LIMIT ?',
+      'SELECT * FROM notes WHERE deleted_time = 0 AND (title LIKE ? OR body LIKE ?) ORDER BY updated_time DESC LIMIT ?',
       [like, like, limit]
     );
     return mapNotes(rows);
@@ -167,8 +180,8 @@ export class NoteRepository {
          id, parent_id, title, body, created_time, updated_time,
          is_conflict, latitude, longitude, altitude, author, source_url,
          is_todo, todo_due, todo_completed, source, source_application,
-         application_data, \`order\`, user_created_time, user_updated_time
-       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         application_data, \`order\`, deleted_time, user_created_time, user_updated_time
+       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         note.id, note.parentId, note.title, note.body,
         note.createdTime, note.updatedTime,
@@ -176,7 +189,7 @@ export class NoteRepository {
         note.author, note.sourceUrl,
         note.isTodo, note.todoDue, note.todoCompleted,
         note.source, note.sourceApplication,
-        note.applicationData, note.order,
+        note.applicationData, note.order, note.deletedTime,
         note.userCreatedTime, note.userUpdatedTime
       ]
     );
@@ -200,7 +213,7 @@ export class NoteRepository {
   }
 
   async countAll(): Promise<number> {
-    const row: Row | null = await queryOne('SELECT COUNT(*) AS c FROM notes');
+    const row: Row | null = await queryOne('SELECT COUNT(*) AS c FROM notes WHERE deleted_time = 0');
     return row === null ? 0 : Number(row['c'] ?? 0);
   }
 }

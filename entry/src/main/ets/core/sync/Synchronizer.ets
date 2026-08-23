@@ -29,10 +29,10 @@ import {
   itemContentPath, itemMetadataPath,
 } from './JoplinApi';
 import {
-  DeserializedItem, PropRecord, recordToFolder, recordToNote, recordToTag,
+  DeserializedItem, PropRecord, recordToFolder, recordToNote, recordToResource, recordToTag,
   serializeFolder, serializeNote, serializeNoteTag, serializeTag, unserializeItem,
 } from './ItemSerializer';
-import { folderRepo, noteRepo, noteTagRepo, settingsRepo, tagRepo } from '../services/Repositories';
+import { folderRepo, noteRepo, noteTagRepo, resourceRepo, settingsRepo, tagRepo } from '../services/Repositories';
 import { Folder, Note, NoteTag, Tag } from '../models/Entities';
 import { ItemType, SyncTarget } from '../utils/Constants';
 import { Row, exec, queryAll, queryOne } from '../db/Query';
@@ -434,12 +434,10 @@ export class Synchronizer {
       return;
     }
 
-    // Resource items (type=4) are stored as raw binary blobs at the same name;
-    // the text `/content` endpoint returns the markdown payload only when
-    // `jop_type > 0`. We don't yet round-trip resource blobs end-to-end, so
-    // bail on Resources instead of trying to unserialise them.
-    if (remoteType === ItemType.Resource) {
-      console.info(`[sync] applyRemote: skipping Resource ${remoteId}`);
+    // `.resource/<id>` 是二进制 blob 路径，不随 delta 处理 —— blob 按需下载
+    // （见 ResourceCache）。这里只关心 `<id>.md` 元数据。
+    if (remoteName.startsWith('.resource/')) {
+      console.info(`[sync] applyRemote: skipping blob path ${remoteName}`);
       return;
     }
 
@@ -480,7 +478,13 @@ export class Synchronizer {
       }
       return;
     }
-    // Resource / unknown type — silently skipped.
+    if (effectiveType === ItemType.Resource) {
+      // 只同步 Resource 元数据（title/mime/size/filename），blob 按需下载。
+      await resourceRepo.upsert(recordToResource(raw), false);
+      console.info(`[sync] applyRemote: resource metadata ${remoteId} saved`);
+      return;
+    }
+    // 未知类型 — 静默跳过。
   }
 
   private async deleteLocalByType(itemType: number, id: string): Promise<void> {
