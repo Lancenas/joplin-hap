@@ -198,6 +198,24 @@ Delta response 每条 change 长这样（来自 `server/src/models/ChangeModel/C
 
 `server/src/services/database/types.ts` 里也有一份 `ItemType` enum（1=Item, 2=UserItem, 3=User），但那是**数据库表**枚举（用在 `db('items')` 等查询中），和 joplin item 的 ModelType **不是一回事**，不要混。
 
+### 10. `batch_delete` 不被 Joplin Server 允许
+
+```
+[sync] pushDeletions: batch_delete failed ({"error":"Not allowed: POST "}), falling back to per-item DELETE
+```
+
+某些 Joplin Server 版本（或自建配置）不允许 `POST api/items/batch_delete`，直接 405/403。本项目 `pushDeletions` 捕获该错误后降级为**逐条 `DELETE api/items/<id>`**（裸 item id，不是 `root:/<id>.md:` 的 file-api 形式）。注意：DELETE 请求**不要带 body** —— ArkTS `http` 对 `extraData` 传空串 `''` 会发出 `Content-Length: 0` 的 body，导致服务端解析失败返回 `401 Parameter error`；正确做法是 `body === null` 时根本不设 `extraData`。
+
+### 11. 同一组件叠加多个 `bindContentCover` 会互相串线
+
+长按列表项弹菜单、再弹输入/确认弹窗时，如果在同一个 `@Entry` 的 Column 上挂多个 `bindContentCover`，浮层会互相抢事件：长按菜单的点击穿透到底层 `ListItem.onClick`，表现为"长按标签却跳进了笔记列表"。
+
+解法：
+- 合并为**单个 `bindContentCover` + `coverKind` 状态机**（`'none' | 'rename' | 'create' | ...`）分发不同弹窗内容；
+- 列表项的"点进详情"不要用 `.onClick`，改用 `.gesture(TapGesture())`，让短按与 `bindMenu` 长按手势在 ArkUI 里正确区分、互不吞事件；
+- 重命名/删除的弹窗触发包一层 `setTimeout(..., 0)`，避开 `bindMenu` 关闭时的事件冒泡。
+
+
 ---
 
 ## ArkTS 严格模式限制备忘

@@ -88,8 +88,9 @@ type_: 1
                   → 更新 sync_time
 
 2. delete_remote  查 deleted_items
-                  → POST api/items/batch_delete
-                  → 清空 deleted_items
+                  → 优先 POST api/items/batch_delete（多数 Joplin Server 版本支持）
+                  → 若服务端返回 Not allowed: POST，降级为逐条 DELETE api/items/<id>
+                  → 仅清除删除成功的行，失败的保留下次重试
 
 3. delta          GET api/items/root:/children/delta?cursor=<游标>
                   → 逐条 GET 内容、unserialize、按 updated_time 判定后写库
@@ -106,6 +107,12 @@ type_: 1
 - 同步器从远端拉到变更并写库 → `upsert(note, false)`，`track=false` → **不**标记待上传
 
 没有这个开关的话，拉下来的每条远端变更都会被当作本地修改再推回服务端，形成无限往复。
+
+### 同步结果的 UI 可见性
+
+同步把数据写进本地 SQLite，但 UI 不会自动"看到"新数据，除非显式重读。`AppStore` 是 `@Observed` 单例，同步结束后 `Synchronizer.run()` 回调里会调 `appStore.refreshAll()`（依次 `refreshFolders` / `refreshTags` / `refreshNotes`），更新 `appStore.tags` 等数组，驱动 `@State store: AppStore` 持有的页面重渲染。
+
+需要特别注意：**用 `aboutToAppear` 快照的页面（如 `TagList` 在 `aboutToAppear` 拷贝 `appStore.tags`）不会在同步后自动更新**。本项目在 `TagList` 上额外挂了 `onPageShow()` 每次页面显示都 `refreshFromStore()`，覆盖"同步时页面已打开、新标签不出现"的坑。若新增独立的只读列表页，也应优先用 `onPageShow` 而非仅靠 `aboutToAppear`。
 
 ### 冲突处理
 
