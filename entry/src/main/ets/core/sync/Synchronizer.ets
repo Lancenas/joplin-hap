@@ -236,7 +236,15 @@ export class Synchronizer {
         continue;
       }
       try {
-        console.info(`[sync] pushLocal: uploading type=${itemType} id=${itemId}`);
+        let label: string = `type=${itemType} id=${itemId}`;
+        if (itemType === ItemType.Tag) {
+          const tg: Tag | null = await tagRepo.get(itemId);
+          label = `type=Tag title=${tg?.title ?? '?'} id=${itemId}`;
+        } else if (itemType === ItemType.NoteTag) {
+          const nt: Row | null = await queryOne('SELECT note_id, tag_id FROM note_tags WHERE id = ?', [itemId]);
+          label = `type=NoteTag id=${itemId} note=${nt?.note_id ?? '?'} tag=${nt?.tag_id ?? '?'}`;
+        }
+        console.info(`[sync] pushLocal: uploading ${label}`);
         await this.uploadItem(itemType, itemId);
         await exec('UPDATE sync_items SET sync_time = ? WHERE id = ?',
           [Number(r['local_updated_time'] ?? 0), sid]);
@@ -504,12 +512,15 @@ export class Synchronizer {
       return;
     }
     if (effectiveType === ItemType.Tag) {
-      await tagRepo.upsert(recordToTag(raw), false);
+      const tg: Tag = recordToTag(raw);
+      console.info(`[sync] applyRemote: Tag title=${tg.title} id=${tg.id} parent=${tg.parentId}`);
+      await tagRepo.upsert(tg, false);
       return;
     }
     if (effectiveType === ItemType.NoteTag) {
       const noteId: string = String(raw['note_id'] ?? '');
       const tagId: string = String(raw['tag_id'] ?? '');
+      console.info(`[sync] applyRemote: NoteTag note=${noteId} tag=${tagId}`);
       if (noteId !== '' && tagId !== '') {
         await noteTagRepo.add(noteId, tagId, false);
       }
