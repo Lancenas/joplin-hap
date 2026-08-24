@@ -336,7 +336,11 @@ export class Synchronizer {
       if (itemType === 0 || itemId === '') {
         continue;
       }
-      paths.push(itemMetadataPath(`${itemId}${extForType(itemType)}`));
+      // Joplin Server 的删除端点按裸 item id 删除（api/items/<id>），
+      // 不能用 file-api 的 root:/<name>: 形式——后者在 DELETE 上会返回
+      // 401 Parameter error。note_tags 的 item_id 是 `${noteId}_${tagId}`
+      // 复合 id，正好等于服务端 note_tag 的 id。
+      paths.push(`api/items/${itemId}`);
       rowIds.push(sid);
     }
     if (paths.length === 0) {
