@@ -121,6 +121,11 @@ struct TagList {
   @Builder
   tagContextMenu(tag: Tag) {
     Menu() {
+      MenuItem({ content: '查看笔记' })
+        .onClick(() => {
+          router.pushUrl({ url: 'pages/NoteList', params: new TagRouteParams(tag.id, tag.title) })
+            .catch((e: Error) => { console.error(`[joplin-hap] nav note list: ${e.message}`); });
+        })
       MenuItem({ content: I18n.renameTag })
         .onClick(() => { this.startRename(tag); })
       MenuItem({ content: I18n.delete })
@@ -182,10 +187,14 @@ struct TagList {
                 .width('100%')
             }
             .bindMenu(this.tagContextMenu(t))
-            .onClick(() => {
-              router.pushUrl({ url: 'pages/NoteList', params: new TagRouteParams(t.id, t.title) })
-                .catch((e: Error) => { console.error(`[joplin-hap] nav note list: ${e.message}`); });
-            })
+            // 用 TapGesture 而非 .onClick：避免与 bindMenu 长按手势互相吞事件导致串线
+            .gesture(
+              TapGesture()
+                .onAction(() => {
+                  router.pushUrl({ url: 'pages/NoteList', params: new TagRouteParams(t.id, t.title) })
+                    .catch((e: Error) => { console.error(`[joplin-hap] nav note list: ${e.message}`); });
+                })
+            )
           }, (t: Tag) => `${t.id}-${t.updatedTime}`)
         }
         .layoutWeight(1)
