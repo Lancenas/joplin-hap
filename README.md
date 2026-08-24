@@ -165,7 +165,7 @@ entry/src/main/ets/
 - **编辑与预览**：Markdown 格式化工具栏；预览升级为 Web 真实渲染（含图片内嵌）。
 - **附件**：Resource 元数据同步 + blob 按需下载缓存；图片内嵌显示；PDF/文件点击调起系统查看器。
 - **回收站**：`deleted_time` 字段 + 数据库版本化迁移，全部笔记隐藏已删、回收站可见。
-- **删除**：笔记 / 笔记本手动删除（笔记本级联删除其中笔记），删除随同步上报。
+- **删除**：笔记 / 笔记本手动删除，删除随同步上报（删除笔记本的「保留笔记移到根目录 / 级联删除」策略见 08-24 调整）。
 - **关键排障**：Web 预览 `src=about:blank` 与 `loadData` 竞态导致空白 → 改响应式 src 单一导航；数据库迁移守卫导致 `deleted_time` 永久缺列 → 版本号强制重迁移。
 
 **2026-08-24**
@@ -175,6 +175,7 @@ entry/src/main/ets/
 - **笔记移动**：长按笔记 →「移动到笔记本」，可选根目录或任意笔记本；`noteRepo.moveToFolder` 只改 `parent_id` 并标记待同步。
 - **删除笔记本行为调整**：默认把笔记本内笔记移到根目录（不再直接级联删除）；确认弹窗可勾选「同时删除笔记本内所有笔记」走级联删除。同步器应用远端删除仍走级联（`folderRepo.delete(id, false)`）。
 - **同步健壮性**：日志不再打印笔记正文（隐私）；同步进度消息全中文；delta 响应非 JSON 时告警；`batch_delete` 降级路径只清除删除成功的行，失败保留下次重试。
+- **UI 弹窗修复**：`Index` 此前在同一组件上叠加多个 `bindContentCover` 导致互相串线（笔记「移动到笔记本」不弹窗、笔记本「删除」误弹移动列表），改为单一 `bindContentCover` + `coverKind` 状态机分发 createFolder / moveNote / deleteFolder。
 - **踩坑**：`PhotoViewPicker` 此 API 版本为 0 参数构造（`new PhotoViewPicker()`，不传 context）。
 
 ## 许可
