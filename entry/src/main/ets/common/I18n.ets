@@ -127,6 +127,16 @@ export class I18n {
   static syncDeleted(n: number): string { return `已删除 ${n} 项`; }
   static syncFailed(reason: string): string { return `同步失败：${reason}`; }
   static syncLoginFailed(reason: string): string { return `登录失败：${reason}`; }
+
+  // 同步进度（由 Synchronizer 经 SyncProgress 上报，直接显示在设置页）
+  static readonly syncConnecting: string = '正在连接服务器…';
+  static readonly syncPushing: string = '正在上传本地更改…';
+  static readonly syncPushingDeletions: string = '正在上报本地删除…';
+  static readonly syncFetching: string = '正在拉取远端更改…';
+  static readonly syncComplete: string = '同步完成';
+  static syncPushFailed(id: string, reason: string): string { return `上传失败（${id}）：${reason}`; }
+  static syncApplying(n: number): string { return `正在应用 ${n} 条远端更改…`; }
+  static syncApplyFailed(id: string, reason: string): string { return `应用远端更改失败（${id}）：${reason}`; }
   static readonly syncNever: string = '从未同步';
   static readonly syncForceConfirmTitle: string = '强制全量重新同步';
   static readonly syncForceConfirmMessage: string =

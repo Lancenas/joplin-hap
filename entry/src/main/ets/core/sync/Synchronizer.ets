@@ -36,6 +36,7 @@ import { folderRepo, noteRepo, noteTagRepo, resourceRepo, settingsRepo, tagRepo 
 import { readResourceBlob } from '../services/ResourceCache';
 import { Folder, Note, NoteTag, Resource, Tag } from '../models/Entities';
 import { ItemType, SyncTarget } from '../utils/Constants';
+import { I18n } from '../../common/I18n';
 import { Row, exec, queryAll, queryOne } from '../db/Query';
 
 export enum SyncPhase {
@@ -131,6 +132,10 @@ function parseDelta(s: string): DeltaResponse {
   try {
     return JSON.parse(s) as DeltaResponse;
   } catch (err) {
+    // 不能静默吞掉：解析失败通常意味着服务端返回了 HTML 错误页或代理截断，
+    // 当作空响应会导致"假同步成功"。打一条告警便于定位（delta 响应只含
+    // item id/name 元数据，不含笔记正文，截断打印无隐私风险）。
+    console.warn(`[sync] pullDelta: delta response is not valid JSON (${s.length}B), head: ${s.slice(0, 100)}`);
     return empty;
   }
 }
@@ -171,18 +176,18 @@ export class Synchronizer {
   async run(): Promise<SyncResult> {
     const start: number = Date.now();
     const result: SyncResult = new SyncResult();
-    this.report(new SyncProgress(SyncPhase.Idle, 'Connecting…'));
+    this.report(new SyncProgress(SyncPhase.Idle, I18n.syncConnecting));
 
     try {
       await this.api.session();
 
-      this.report(new SyncProgress(SyncPhase.UpdateRemote, 'Pushing local changes…'));
+      this.report(new SyncProgress(SyncPhase.UpdateRemote, I18n.syncPushing));
       result.pushed = await this.pushLocal();
 
-      this.report(new SyncProgress(SyncPhase.DeleteRemote, 'Pushing deletions…', result.pushed));
+      this.report(new SyncProgress(SyncPhase.DeleteRemote, I18n.syncPushingDeletions, result.pushed));
       result.deleted = await this.pushDeletions();
 
-      this.report(new SyncProgress(SyncPhase.Delta, 'Fetching remote changes…', result.pushed, 0, result.deleted));
+      this.report(new SyncProgress(SyncPhase.Delta, I18n.syncFetching, result.pushed, 0, result.deleted));
       result.pulled = await this.pullDelta();
 
       // Post-sync diagnostic: verify local DB state matches expectations.
@@ -192,7 +197,7 @@ export class Synchronizer {
       const noteCount: number = noteRow === null ? 0 : Number(noteRow['c'] ?? 0);
       console.info(`[sync] done: pushed=${result.pushed} pulled=${result.pulled} deleted=${result.deleted}, local: ${folderCount} folder(s), ${noteCount} note(s)`);
 
-      this.report(new SyncProgress(SyncPhase.Done, 'Sync complete',
+      this.report(new SyncProgress(SyncPhase.Done, I18n.syncComplete,
         result.pushed, result.pulled, result.deleted));
     } catch (e) {
       result.ok = false;
@@ -240,7 +245,7 @@ export class Synchronizer {
         // A single failed item should not abort the whole round.
         console.warn(`[sync] pushLocal: FAILED type=${itemType} id=${itemId}: ${(e as Error).message}`);
         this.report(new SyncProgress(SyncPhase.UpdateRemote,
-          `Push failed for ${itemId}: ${(e as Error).message}`, pushed));
+          I18n.syncPushFailed(itemId, (e as Error).message), pushed));
       }
     }
     console.info(`[sync] pushLocal: done, ${pushed}/${rows.length} uploaded`);
@@ -323,13 +328,16 @@ export class Synchronizer {
       return 0;
     }
     const paths: string[] = [];
+    const rowIds: number[] = [];
     for (const r of rows) {
       const itemType: number = Number(r['item_type'] ?? 0);
       const itemId: string = String(r['item_id'] ?? '');
+      const sid: number = Number(r['id'] ?? 0);
       if (itemType === 0 || itemId === '') {
         continue;
       }
       paths.push(itemMetadataPath(`${itemId}${extForType(itemType)}`));
+      rowIds.push(sid);
     }
     if (paths.length === 0) {
       await exec('DELETE FROM deleted_items');
@@ -338,18 +346,25 @@ export class Synchronizer {
     try {
       const payload: string = JSON.stringify(new BatchDeleteRequest(paths));
       await this.api.exec('POST', 'api/batch_delete', null, payload);
+      await exec('DELETE FROM deleted_items');
+      return paths.length;
     } catch (e) {
-      // Older servers have no batch_delete endpoint; fall back to one-by-one.
-      for (const p of paths) {
+      // 老版本服务端没有 batch_delete 端点，降级为逐条 DELETE。
+      // 只清除确实删除成功的行——失败的保留在 deleted_items 里，
+      // 下次同步重试，避免本地删除永远丢失上报。
+      console.warn(`[sync] pushDeletions: batch_delete failed (${(e as Error).message}), falling back to per-item DELETE`);
+      let deleted: number = 0;
+      for (let i = 0; i < paths.length; i++) {
         try {
-          await this.api.exec('DELETE', p);
+          await this.api.exec('DELETE', paths[i]);
+          await exec('DELETE FROM deleted_items WHERE id = ?', [rowIds[i]]);
+          deleted += 1;
         } catch (inner) {
-          // Ignore individual failures — the item may already be gone.
+          console.warn(`[sync] pushDeletions: DELETE failed for ${paths[i]}, will retry next sync: ${(inner as Error).message}`);
         }
       }
+      return deleted;
     }
-    await exec('DELETE FROM deleted_items');
-    return paths.length;
   }
 
   private async pullDelta(): Promise<number> {
@@ -371,7 +386,7 @@ export class Synchronizer {
       totalKnown += items.length;
       console.info(`[sync] pullDelta: batch ${safety}, ${items.length} item(s), has_more=${parsed.has_more}`);
       this.report(new SyncProgress(SyncPhase.Delta,
-        `Applying ${items.length} change(s)…`, 0, pulled, 0, totalKnown, totalKnown - items.length));
+        I18n.syncApplying(items.length), 0, pulled, 0, totalKnown, totalKnown - items.length));
 
       for (const remote of items) {
         try {
@@ -379,7 +394,7 @@ export class Synchronizer {
           pulled += 1;
         } catch (e) {
           this.report(new SyncProgress(SyncPhase.Delta,
-            `Failed to apply ${remote.id}: ${(e as Error).message}`, 0, pulled, 0, totalKnown, pulled));
+            I18n.syncApplyFailed(remote.id, (e as Error).message), 0, pulled, 0, totalKnown, pulled));
         }
       }
 
@@ -464,7 +479,8 @@ export class Synchronizer {
     // outer try/catch already isolates a hard failure for one item so the
     // rest of the batch still gets applied.
     const res = await this.api.exec('GET', path, null, null, null, 2, 600);
-    console.info(`[sync] GET ${path} → ${res.status}, body ${res.body.length}B, head: ${res.body.slice(0, 120)}`);
+    // 注意：不要在此打印 body 内容——body 是用户笔记原文，进 hilog 会泄露隐私。
+    console.info(`[sync] GET ${path} → ${res.status}, body ${res.body.length}B`);
     const item: DeserializedItem | null = unserializeItem(res.body, remoteType);
     if (item === null) {
       // Body did not look like a Joplin item (might be binary or HTML).

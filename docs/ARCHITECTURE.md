@@ -45,7 +45,7 @@ core/services/Repositories.ets  仓储层：CRUD + 同步队列维护
 | `folders` | 笔记本 |
 | `notes` | 笔记（含 `is_todo` / `todo_due` / 经纬度 / `order` 等全部字段） |
 | `tags` / `note_tags` | 标签与多对多关联 |
-| `resources` | 附件元数据（当前仅建表，未实现上传下载） |
+| `resources` | 附件元数据（blob 存 `.resource/<id>`，按需下载缓存，本地新建随同步上传） |
 | `sync_items` | 同步状态：`sync_time=0` 表示待上传 |
 | `deleted_items` | 本地删除待上报 |
 | `settings` | 键值配置，键名沿用 Joplin（如 `sync.9.path`） |
@@ -140,8 +140,9 @@ ArkTS 是 TypeScript 的严格子集，禁用了运行时类型不确定的特�
 
 | 缺口 | 影响 |
 |---|---|
-| Resources 附件 | 含附件的笔记同步后图片/文件无法查看 |
 | E2EE | 无法接入已启用端到端加密的 Joplin 账户 |
 | 冲突笔记 | 并发编辑同一笔记会静默按时间戳覆盖 |
 | 修订历史 | 无 `revisions` 表，不支持版本回溯 |
 | `@ohos.router` 已弃用 | API 24 起标记弃用，需迁移到 `Navigation` + `NavPathStack` |
+| 同步密码明文存储 | `sync.9.password` 以明文存于本地 `settings` 表（与官方客户端一致），尚未接系统 KeyStore |
+| delta 逐条拉取 | 每条远端变更单独 GET item body（N+1），与官方客户端行为一致；首次全量同步大库较慢 |
