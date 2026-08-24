@@ -21,6 +21,11 @@ struct TagList {
     this.reload();
   }
 
+  // 每次页面显示（含从其他页返回）都重新拉取，确保同步后的标签可见。
+  onPageShow(): void {
+    this.refreshFromStore();
+  }
+
   // 从 AppStore 读最新标签列表，确保同步拉下来的标签能显示。
   private reload(): void {
     this.tags = appStore.tags.slice();

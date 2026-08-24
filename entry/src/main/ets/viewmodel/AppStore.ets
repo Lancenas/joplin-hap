@@ -54,6 +54,7 @@ export class AppStore {
 
   async refreshTags(): Promise<void> {
     this.tags = await tagRepo.list();
+    console.info(`[joplin-hap] refreshTags: ${this.tags.length} tag(s) in store`);
   }
 
   async refreshNotes(): Promise<void> {
