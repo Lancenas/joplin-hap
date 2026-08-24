@@ -292,8 +292,15 @@ export class JoplinApi {
       connectTimeout: 15000,
       readTimeout: 30000,
       expectDataType: http.HttpDataType.STRING,
-      extraData: body === null ? '' : body,
     };
+    // body 为 null 时不设置 extraData，http 模块就不会发请求体。
+    // 之前这里写成 `body === null ? '' : body`，给 DELETE 等无 body 请求
+    // 塞了空字符串，Joplin Server 解析失败返回 401 Parameter error
+    // （GET 能成功正是因为它本来就不发 body）。PUT 上传走 extraHeaders
+    // 设置 Content-Type，不受影响。
+    if (body !== null) {
+      opts.extraData = body;
+    }
 
     const maxAttempts: number = 1 + (retries > 0 ? retries : 0);
     let attempt: number = 0;
