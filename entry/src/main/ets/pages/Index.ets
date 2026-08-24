@@ -10,15 +10,15 @@ import { folderRepo, noteRepo } from '../core/services/Repositories';
 struct Index {
   @State store: AppStore = appStore;
   @State showSidebar: boolean = true;
-  @State showCreateFolder: boolean = false;
   @State newFolderTitle: string = '';
   @State revision: number = 0;
-  // 「移动到笔记本」弹窗
-  @State showMoveNote: boolean = false;
+  // 统一的内容覆盖层：避免在同一组件上叠加多个 bindContentCover 导致互相串线
+  @State showCover: boolean = false;
+  @State coverKind: string = 'none'; // 'createFolder' | 'moveNote' | 'deleteFolder'
+  // 「移动到笔记本」数据
   @State moveNoteId: string = '';
   @State moveNoteParentId: string = '';
-  // 「删除笔记本」弹窗（默认保留笔记移到根目录，可勾选级联删除）
-  @State showDeleteFolder: boolean = false;
+  // 「删除笔记本」数据（默认保留笔记移到根目录，可勾选级联删除）
   @State deleteFolderId: string = '';
   @State deleteFolderName: string = '';
   @State deleteFolderNotesToo: boolean = false;
@@ -66,12 +66,13 @@ struct Index {
   private startMoveNote(note: Note): void {
     this.moveNoteId = note.id;
     this.moveNoteParentId = note.parentId;
-    this.showMoveNote = true;
+    this.coverKind = 'moveNote';
+    this.showCover = true;
   }
 
   private execMoveNote(folderId: string): void {
     const noteId: string = this.moveNoteId;
-    this.showMoveNote = false;
+    this.showCover = false;
     if (noteId === '' || folderId === this.moveNoteParentId) {
       return;
     }
@@ -88,13 +89,14 @@ struct Index {
     this.deleteFolderId = folder.id;
     this.deleteFolderName = folder.title === '' ? I18n.untitledNotebook : folder.title;
     this.deleteFolderNotesToo = false;
-    this.showDeleteFolder = true;
+    this.coverKind = 'deleteFolder';
+    this.showCover = true;
   }
 
   private execDeleteFolder(): void {
     const folderId: string = this.deleteFolderId;
     const cascade: boolean = this.deleteFolderNotesToo;
-    this.showDeleteFolder = false;
+    this.showCover = false;
     if (folderId === '') {
       return;
     }
@@ -159,9 +161,7 @@ struct Index {
     .width('100%')
     .height('100%')
     .backgroundColor('#F2F4F7')
-    .bindContentCover($$this.showCreateFolder, this.createFolderDialog())
-    .bindContentCover($$this.showMoveNote, this.moveNoteDialog())
-    .bindContentCover($$this.showDeleteFolder, this.deleteFolderDialog())
+    .bindContentCover($$this.showCover, this.coverDialog())
   }
 
   @Builder
@@ -197,7 +197,7 @@ struct Index {
           .fontSize(15)
           .backgroundColor('#EEF1F5')
           .fontColor('#1F58B8')
-          .onClick(() => { this.showCreateFolder = true; })
+          .onClick(() => { this.openCreateFolder(); })
         Button('×')
           .height(26)
           .width(34)
@@ -324,6 +324,17 @@ struct Index {
   }
 
   @Builder
+  coverDialog() {
+    if (this.coverKind === 'createFolder') {
+      this.createFolderDialog()
+    } else if (this.coverKind === 'moveNote') {
+      this.moveNoteDialog()
+    } else if (this.coverKind === 'deleteFolder') {
+      this.deleteFolderDialog()
+    }
+  }
+
+  @Builder
   createFolderDialog() {
     Column() {
       Column() {
@@ -339,7 +350,7 @@ struct Index {
             .fontColor('#3C3C3C')
             .onClick(() => {
               this.newFolderTitle = '';
-              this.showCreateFolder = false;
+              this.showCover = false;
             })
           Blank()
           Button(I18n.confirm)
@@ -414,7 +425,7 @@ struct Index {
           Button(I18n.cancel)
             .backgroundColor('#EEF1F5')
             .fontColor('#3C3C3C')
-            .onClick(() => { this.showMoveNote = false; })
+            .onClick(() => { this.showCover = false; })
         }
         .width('100%')
         .margin({ top: 16 })
@@ -466,7 +477,7 @@ struct Index {
           Button(I18n.cancel)
             .backgroundColor('#EEF1F5')
             .fontColor('#3C3C3C')
-            .onClick(() => { this.showDeleteFolder = false; })
+            .onClick(() => { this.showCover = false; })
           Blank()
           Button(I18n.delete)
             .fontColor('#B3261E')
@@ -599,6 +610,11 @@ struct Index {
       .catch((e: Error) => { console.error(`[joplin-hap] nav editor: ${e.message}`); });
   }
 
+  private openCreateFolder(): void {
+    this.coverKind = 'createFolder';
+    this.showCover = true;
+  }
+
   private createFolder(): void {
     const title: string = this.newFolderTitle.trim();
     if (title === '') {
@@ -607,7 +623,7 @@ struct Index {
     folderRepo.upsert(newFolder(title))
       .then(() => {
         this.newFolderTitle = '';
-        this.showCreateFolder = false;
+        this.showCover = false;
         this.reload();
       })
       .catch((e: Error) => { console.error(`[joplin-hap] createFolder: ${e.message}`); });
