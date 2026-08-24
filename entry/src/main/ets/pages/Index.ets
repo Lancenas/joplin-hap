@@ -288,12 +288,25 @@ struct Index {
 
       Divider().color('#E1E4E8')
 
-      // 标签分组
-      Text(I18n.tagsTitle)
-        .fontSize(12)
-        .fontColor('#6B6B6B')
-        .width('100%')
-        .padding({ left: 12, top: 10, bottom: 4 })
+      // 标签分组（点击「+」进入标签管理页，可新建/重命名/删除）
+      Row() {
+        Text(I18n.tagsTitle)
+          .fontSize(12)
+          .fontColor('#6B6B6B')
+          .layoutWeight(1)
+        Button('+')
+          .fontSize(13)
+          .fontColor('#1F58B8')
+          .backgroundColor('#EEF1F5')
+          .height(24)
+          .padding({ left: 10, right: 10 })
+          .onClick(() => {
+            router.pushUrl({ url: 'pages/TagList' })
+              .catch((e: Error) => { console.error(`[joplin-hap] nav tag list: ${e.message}`); });
+          })
+      }
+      .width('100%')
+      .padding({ left: 12, right: 8, top: 10, bottom: 4 })
 
       List({ space: 2 }) {
         ForEach(this.store.tags, (tag: Tag) => {

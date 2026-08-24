@@ -10,12 +10,11 @@ import { newTag } from '../core/models/Entities';
 @Component
 struct TagList {
   @State tags: Tag[] = [];
-  // 重命名弹窗状态
-  @State showRename: boolean = false;
+  // 统一内容覆盖层：单个 bindContentCover + coverKind 状态机，避免多覆盖层叠加串线
+  @State showCover: boolean = false;
+  @State coverKind: string = 'none'; // 'rename' | 'create'
   @State renameTagId: string = '';
   @State renameTitle: string = '';
-  // 新建标签弹窗状态
-  @State showCreate: boolean = false;
   @State newTagName: string = '';
 
   aboutToAppear(): void {
@@ -36,8 +35,9 @@ struct TagList {
   // 独立创建一个标签（不挂在某篇笔记上），写入本地并标记待同步。
   private createTag(): void {
     const title: string = this.newTagName.trim();
-    this.showCreate = false;
     this.newTagName = '';
+    this.showCover = false;
+    this.coverKind = 'none';
     if (title === '') {
       return;
     }
@@ -54,16 +54,23 @@ struct TagList {
       });
   }
 
+  // 弹出重命名输入框（单一 bindContentCover 状态机，避免关闭时误触底层列表点击）。
   private startRename(tag: Tag): void {
     this.renameTagId = tag.id;
     this.renameTitle = tag.title;
-    this.showRename = true;
+    // 延迟一帧再开弹窗：bindMenu 浮层关闭时的点击事件会冒泡到底层 ListItem.onClick，
+    // 若同步打开覆盖层，会误触发「进入笔记列表」。下一帧再开可避开该冒泡。
+    setTimeout(() => {
+      this.coverKind = 'rename';
+      this.showCover = true;
+    }, 0);
   }
 
   private doRename(): void {
     const title: string = this.renameTitle.trim();
     const id: string = this.renameTagId;
-    this.showRename = false;
+    this.showCover = false;
+    this.coverKind = 'none';
     if (title === '' || id === '') {
       return;
     }
@@ -91,16 +98,18 @@ struct TagList {
 
   private confirmDelete(tag: Tag): void {
     const name: string = tag.title === '' ? I18n.tagsTitle : `#${tag.title}`;
-    AlertDialog.show({
-      title: I18n.delete,
-      message: `${I18n.tagDeleteConfirm}\n${I18n.tagDeleteKeepNoteHint}`,
-      primaryButton: { value: I18n.cancel, action: () => {} },
-      secondaryButton: {
-        value: I18n.delete,
-        fontColor: '#B3261E',
-        action: () => { this.deleteTag(tag); }
-      }
-    });
+    setTimeout(() => {
+      AlertDialog.show({
+        title: I18n.delete,
+        message: `${I18n.tagDeleteConfirm}\n${I18n.tagDeleteKeepNoteHint}`,
+        primaryButton: { value: I18n.cancel, action: () => {} },
+        secondaryButton: {
+          value: I18n.delete,
+          fontColor: '#B3261E',
+          action: () => { this.deleteTag(tag); }
+        }
+      });
+    }, 0);
   }
 
   private deleteTag(tag: Tag): void {
@@ -138,7 +147,7 @@ struct TagList {
           .fontSize(13)
           .backgroundColor('#EEF1F5')
           .fontColor('#1F58B8')
-          .onClick(() => { this.showCreate = true; })
+          .onClick(() => { this.coverKind = 'create'; this.showCover = true; })
         Button(I18n.refresh)
           .height(32)
           .fontSize(13)
@@ -187,8 +196,16 @@ struct TagList {
     .width('100%')
     .height('100%')
     .backgroundColor('#FFFFFF')
-    .bindContentCover($$this.showRename, this.renameDialog())
-    .bindContentCover($$this.showCreate, this.createDialog())
+    .bindContentCover($$this.showCover, this.coverDialog())
+  }
+
+  @Builder
+  coverDialog() {
+    if (this.coverKind === 'rename') {
+      this.renameDialog()
+    } else if (this.coverKind === 'create') {
+      this.createDialog()
+    }
   }
 
   @Builder
@@ -207,7 +224,7 @@ struct TagList {
           .layoutWeight(1)
           .backgroundColor('#EEF1F5')
           .fontColor('#1F58B8')
-          .onClick(() => { this.showRename = false; })
+          .onClick(() => { this.showCover = false; this.coverKind = 'none'; })
         Button(I18n.confirm)
           .layoutWeight(1)
           .onClick(() => { this.doRename(); })
@@ -237,7 +254,7 @@ struct TagList {
           .layoutWeight(1)
           .backgroundColor('#EEF1F5')
           .fontColor('#1F58B8')
-          .onClick(() => { this.showCreate = false; })
+          .onClick(() => { this.showCover = false; this.coverKind = 'none'; })
         Button(I18n.confirm)
           .layoutWeight(1)
           .onClick(() => { this.createTag(); })
