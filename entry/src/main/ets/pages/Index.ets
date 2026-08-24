@@ -13,6 +13,15 @@ struct Index {
   @State showCreateFolder: boolean = false;
   @State newFolderTitle: string = '';
   @State revision: number = 0;
+  // 「移动到笔记本」弹窗
+  @State showMoveNote: boolean = false;
+  @State moveNoteId: string = '';
+  @State moveNoteParentId: string = '';
+  // 「删除笔记本」弹窗（默认保留笔记移到根目录，可勾选级联删除）
+  @State showDeleteFolder: boolean = false;
+  @State deleteFolderId: string = '';
+  @State deleteFolderName: string = '';
+  @State deleteFolderNotesToo: boolean = false;
 
   aboutToAppear(): void {
     this.reload();
@@ -53,27 +62,47 @@ struct Index {
       .catch((e: Error) => { console.error(`[joplin-hap] deleteNote: ${e.message}`); });
   }
 
-  // ── 删除笔记本 ──
-  private confirmDeleteFolder(folder: Folder): void {
-    const name: string = folder.title === '' ? I18n.untitledNotebook : folder.title;
-    AlertDialog.show({
-      title: I18n.notebookDelete,
-      message: I18n.notebookDeleteConfirm(name),
-      primaryButton: { value: I18n.cancel, action: () => {} },
-      secondaryButton: {
-        value: I18n.delete,
-        fontColor: '#B3261E',
-        action: () => { this.deleteFolder(folder); }
-      }
-    });
+  // ── 移动笔记 ──
+  private startMoveNote(note: Note): void {
+    this.moveNoteId = note.id;
+    this.moveNoteParentId = note.parentId;
+    this.showMoveNote = true;
   }
 
-  private deleteFolder(folder: Folder): void {
-    folderRepo.delete(folder.id)
+  private execMoveNote(folderId: string): void {
+    const noteId: string = this.moveNoteId;
+    this.showMoveNote = false;
+    if (noteId === '' || folderId === this.moveNoteParentId) {
+      return;
+    }
+    noteRepo.moveToFolder(noteId, folderId)
       .then(() => {
-        console.info(`[joplin-hap] deleted folder ${folder.id}`);
+        console.info(`[joplin-hap] moved note ${noteId} → folder '${folderId}'`);
+        this.reload();
+      })
+      .catch((e: Error) => { console.error(`[joplin-hap] moveNote: ${e.message}`); });
+  }
+
+  // ── 删除笔记本 ──
+  private confirmDeleteFolder(folder: Folder): void {
+    this.deleteFolderId = folder.id;
+    this.deleteFolderName = folder.title === '' ? I18n.untitledNotebook : folder.title;
+    this.deleteFolderNotesToo = false;
+    this.showDeleteFolder = true;
+  }
+
+  private execDeleteFolder(): void {
+    const folderId: string = this.deleteFolderId;
+    const cascade: boolean = this.deleteFolderNotesToo;
+    this.showDeleteFolder = false;
+    if (folderId === '') {
+      return;
+    }
+    folderRepo.delete(folderId, true, cascade)
+      .then(() => {
+        console.info(`[joplin-hap] deleted folder ${folderId} (cascade=${cascade})`);
         // 删除当前选中的笔记本时，回退到「全部笔记」
-        if (this.store.selectedFolderId === folder.id) {
+        if (this.store.selectedFolderId === folderId) {
           this.store.selectedFolderId = '';
         }
         this.reload();
@@ -131,11 +160,15 @@ struct Index {
     .height('100%')
     .backgroundColor('#F2F4F7')
     .bindContentCover($$this.showCreateFolder, this.createFolderDialog())
+    .bindContentCover($$this.showMoveNote, this.moveNoteDialog())
+    .bindContentCover($$this.showDeleteFolder, this.deleteFolderDialog())
   }
 
   @Builder
   noteContextMenu(note: Note) {
     Menu() {
+      MenuItem({ content: I18n.noteMoveTo })
+        .onClick(() => { this.startMoveNote(note); })
       MenuItem({ content: I18n.delete })
         .onClick(() => { this.confirmDeleteNote(note); })
     }
@@ -311,6 +344,134 @@ struct Index {
           Blank()
           Button(I18n.confirm)
             .onClick(() => { this.createFolder(); })
+        }
+        .width('100%')
+        .margin({ top: 16 })
+      }
+      .padding(20)
+      .backgroundColor('#FFFFFF')
+      .borderRadius(12)
+      .width('80%')
+    }
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .width('100%')
+    .height('100%')
+    .backgroundColor('rgba(0,0,0,0.4)')
+  }
+
+  @Builder
+  moveNoteDialog() {
+    Column() {
+      Column() {
+        Text(I18n.noteMoveTo)
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
+          .margin({ bottom: 12 })
+        List({ space: 2 }) {
+          // 根目录（全部笔记）
+          ListItem() {
+            Row() {
+              Text(I18n.moveToRoot)
+                .layoutWeight(1)
+                .fontSize(14)
+              if (this.moveNoteParentId === '') {
+                Text('•').fontColor('#1F58B8').fontSize(18)
+              }
+            }
+            .padding(10)
+            .borderRadius(8)
+            .backgroundColor(this.moveNoteParentId === '' ? '#E1ECFF' : Color.Transparent)
+            .onClick(() => { this.execMoveNote(''); })
+          }
+          ForEach(this.store.folders, (folder: Folder) => {
+            ListItem() {
+              Row() {
+                Text('📁')
+                  .fontSize(14)
+                  .margin({ right: 6 })
+                Text(folder.title === '' ? I18n.untitledNotebook : folder.title)
+                  .layoutWeight(1)
+                  .fontSize(14)
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                if (this.moveNoteParentId === folder.id) {
+                  Text('•').fontColor('#1F58B8').fontSize(18)
+                }
+              }
+              .padding(10)
+              .borderRadius(8)
+              .backgroundColor(this.moveNoteParentId === folder.id ? '#E1ECFF' : Color.Transparent)
+              .onClick(() => { this.execMoveNote(folder.id); })
+            }
+          }, (folder: Folder) => folder.id)
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .listDirection(Axis.Vertical)
+        Row() {
+          Blank()
+          Button(I18n.cancel)
+            .backgroundColor('#EEF1F5')
+            .fontColor('#3C3C3C')
+            .onClick(() => { this.showMoveNote = false; })
+        }
+        .width('100%')
+        .margin({ top: 16 })
+      }
+      .padding(20)
+      .backgroundColor('#FFFFFF')
+      .borderRadius(12)
+      .width('80%')
+      .height('60%')
+    }
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .width('100%')
+    .height('100%')
+    .backgroundColor('rgba(0,0,0,0.4)')
+  }
+
+  @Builder
+  deleteFolderDialog() {
+    Column() {
+      Column() {
+        Text(I18n.notebookDelete)
+          .fontSize(18)
+          .fontWeight(FontWeight.Medium)
+          .margin({ bottom: 12 })
+        Text(I18n.notebookDeleteConfirm(this.deleteFolderName))
+          .fontSize(14)
+          .fontColor('#3C3C3C')
+          .width('100%')
+        if (!this.deleteFolderNotesToo) {
+          Text(I18n.notebookDeleteKeepHint(this.store.folderNoteCounts[this.deleteFolderId] ?? 0))
+            .fontSize(13)
+            .fontColor('#6B6B6B')
+            .width('100%')
+            .margin({ top: 8 })
+        }
+        Row() {
+          Checkbox()
+            .select(this.deleteFolderNotesToo)
+            .onChange((v: boolean) => { this.deleteFolderNotesToo = v; })
+          Text(I18n.notebookDeleteAlsoNotes)
+            .fontSize(14)
+            .fontColor('#B3261E')
+            .margin({ left: 8 })
+        }
+        .width('100%')
+        .margin({ top: 12 })
+        Row() {
+          Button(I18n.cancel)
+            .backgroundColor('#EEF1F5')
+            .fontColor('#3C3C3C')
+            .onClick(() => { this.showDeleteFolder = false; })
+          Blank()
+          Button(I18n.delete)
+            .fontColor('#B3261E')
+            .backgroundColor('#FBE9E7')
+            .onClick(() => { this.execDeleteFolder(); })
         }
         .width('100%')
         .margin({ top: 16 })

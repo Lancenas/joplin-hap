@@ -71,10 +71,19 @@ export class I18n {
   static readonly notebookRename: string = '重命名笔记本';
   static readonly notebookDelete: string = '删除笔记本';
   static notebookDeleteConfirm(name: string): string {
-    return `确定删除笔记本 “${name}”？笔记本内的笔记也将被删除。`;
+    return `确定删除笔记本 “${name}”？`;
   }
+  static notebookDeleteKeepHint(n: number): string {
+    return `笔记本内的 ${n} 条笔记将移动到根目录。`;
+  }
+  static readonly notebookDeleteAlsoNotes: string = '同时删除笔记本内所有笔记';
   static readonly pickANotebook: string = '请选择一个笔记本';
   static readonly untitledNotebook: string = '未命名笔记本';
+
+  // 移动笔记
+  static readonly noteMoveTo: string = '移动到笔记本';
+  static readonly moveToRoot: string = '全部笔记（根目录）';
+  static readonly noteMovedToast: string = '已移动';
 
   // 标签
   static readonly tagsTitle: string = '标签';

@@ -212,6 +212,17 @@ export class NoteRepository {
     }
   }
 
+  // 把笔记移动到另一个笔记本（folderId 传 '' 表示根目录/全部笔记）。
+  // 只改 parent_id：updated_time 前进并标记待同步，与桌面端的移动语义一致。
+  async moveToFolder(noteId: string, folderId: string, track: boolean = true): Promise<void> {
+    const now: number = nowMs();
+    await exec('UPDATE notes SET parent_id = ?, updated_time = ?, user_updated_time = ? WHERE id = ?',
+      [folderId, now, now, noteId]);
+    if (track) {
+      await markItemForSync(ItemType.Note, noteId);
+    }
+  }
+
   async countByFolder(folderId: string): Promise<number> {
     const row: Row | null = await queryOne('SELECT COUNT(*) AS c FROM notes WHERE parent_id = ?', [folderId]);
     return row === null ? 0 : Number(row['c'] ?? 0);
@@ -261,9 +272,34 @@ export class FolderRepository {
     return folder;
   }
 
-  // 删除笔记本时，连同其中所有笔记一起删除（含 note_tags 和 sync 删除标记），
-  // 与桌面端 Joplin 的删除行为一致。
-  async delete(id: string, track: boolean = true): Promise<void> {
+  // 删除笔记本。deleteNotes=true 时级联删除其中所有笔记（含 note_tags 和
+  // sync 删除标记）；deleteNotes=false 时把笔记移动到根目录（parent_id=''）
+  // 并逐条标记待同步——这是 UI 层删除笔记本的默认行为，避免误删笔记。
+  // 同步器应用远端删除时走级联（track=false），与桌面端 Joplin 的行为一致。
+  async delete(id: string, track: boolean = true, deleteNotes: boolean = true): Promise<void> {
+    if (!deleteNotes) {
+      // 保留笔记：批量移到根目录，逐条标记待同步，再删笔记本本身。
+      const keepRows: Row[] = await queryAll('SELECT id FROM notes WHERE parent_id = ?', [id]);
+      const now: number = nowMs();
+      await exec(`UPDATE notes SET parent_id = '', updated_time = ?, user_updated_time = ? WHERE parent_id = ?`,
+        [now, now, id]);
+      if (track) {
+        for (const row of keepRows) {
+          const noteId: string = String(row['id'] ?? '');
+          if (noteId !== '') {
+            await markItemForSync(ItemType.Note, noteId);
+          }
+        }
+      }
+      await exec('DELETE FROM folders WHERE id = ?', [id]);
+      if (track) {
+        await recordDeletion(ItemType.Folder, id);
+      }
+      console.info(`[joplin-hap] folderRepo.delete: folder ${id} deleted, ${keepRows.length} note(s) moved to root`);
+      return;
+    }
+
+    // 级联删除：
     // 1. 找出该笔记本下的所有笔记
     const noteRows: Row[] = await queryAll('SELECT id FROM notes WHERE parent_id = ?', [id]);
     // 2. 批量删除笔记（SQL 层面一次删完）
