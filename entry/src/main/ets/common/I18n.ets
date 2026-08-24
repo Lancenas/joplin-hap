@@ -28,6 +28,7 @@ export class I18n {
   static readonly no: string = '否';
   static readonly loading: string = '加载中…';
   static readonly refreshing: string = '刷新中…';
+  static readonly refresh: string = '刷新';
   static readonly untitled: string = '无标题';
   static readonly created: string = '创建于';
   static readonly updated: string = '更新于';
@@ -93,6 +94,10 @@ export class I18n {
   static readonly attachTagHint: string = '输入标签名称后点击「添加标签」';
   static readonly tagAlreadyAttached: string = '已附加此标签';
   static readonly noAttachedTags: string = '该笔记暂无标签';
+  static readonly renameTag: string = '重命名标签';
+  static readonly tagRenameHint: string = '输入新的标签名称';
+  static readonly tagDeleteKeepNoteHint: string = '删除标签后，已打该标签的笔记会保留，仅移除标签关联';
+  static readonly newTagNameExists: string = '已存在同名标签';
 
   // 编辑器
   static readonly editorTitlePlaceholder: string = '标题';

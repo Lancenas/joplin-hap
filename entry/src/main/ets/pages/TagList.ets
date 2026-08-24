@@ -3,16 +3,120 @@ import { I18n } from '../common/I18n';
 import { Tag } from '../core/models/Entities';
 import { tagRepo } from '../core/services/Repositories';
 import { TagRouteParams } from '../viewmodel/RouteParams';
+import { appStore } from '../viewmodel/AppStore';
+import { newTag } from '../core/models/Entities';
 
 @Entry
 @Component
 struct TagList {
   @State tags: Tag[] = [];
+  // 重命名弹窗状态
+  @State showRename: boolean = false;
+  @State renameTagId: string = '';
+  @State renameTitle: string = '';
+  // 新建标签弹窗状态
+  @State showCreate: boolean = false;
+  @State newTagName: string = '';
 
   aboutToAppear(): void {
-    tagRepo.list()
-      .then((rows: Tag[]) => { this.tags = rows; })
-      .catch((e: Error) => { console.error(`[joplin-hap] tag list: ${e.message}`); });
+    this.reload();
+  }
+
+  // 从 AppStore 读最新标签列表，确保同步拉下来的标签能显示。
+  private reload(): void {
+    this.tags = appStore.tags.slice();
+  }
+
+  // 进入页面时让 AppStore 重新拉取一次本地标签（覆盖同步后 TagList 已打开的情况）。
+  private async refreshFromStore(): Promise<void> {
+    await appStore.refreshTags();
+    this.reload();
+  }
+
+  // 独立创建一个标签（不挂在某篇笔记上），写入本地并标记待同步。
+  private createTag(): void {
+    const title: string = this.newTagName.trim();
+    this.showCreate = false;
+    this.newTagName = '';
+    if (title === '') {
+      return;
+    }
+    tagRepo.findByTitle(title)
+      .then((existing: Tag | null) => {
+        if (existing !== null) {
+          throw new Error(I18n.newTagNameExists);
+        }
+        return tagRepo.upsert(newTag(title), true);
+      })
+      .then(() => { return this.refreshFromStore(); })
+      .catch((e: Error) => {
+        console.error(`[joplin-hap] create tag: ${e.message}`);
+      });
+  }
+
+  private startRename(tag: Tag): void {
+    this.renameTagId = tag.id;
+    this.renameTitle = tag.title;
+    this.showRename = true;
+  }
+
+  private doRename(): void {
+    const title: string = this.renameTitle.trim();
+    const id: string = this.renameTagId;
+    this.showRename = false;
+    if (title === '' || id === '') {
+      return;
+    }
+    tagRepo.findByTitle(title)
+      .then((existing: Tag | null) => {
+        if (existing !== null && existing.id !== id) {
+          throw new Error(I18n.newTagNameExists);
+        }
+        return tagRepo.get(id);
+      })
+      .then((tag: Tag | null) => {
+        if (tag === null) {
+          return;
+        }
+        tag.title = title;
+        return tagRepo.upsert(tag, true);
+      })
+      .then(() => {
+        return this.refreshFromStore();
+      })
+      .catch((e: Error) => {
+        console.error(`[joplin-hap] rename tag: ${e.message}`);
+      });
+  }
+
+  private confirmDelete(tag: Tag): void {
+    const name: string = tag.title === '' ? I18n.tagsTitle : `#${tag.title}`;
+    AlertDialog.show({
+      title: I18n.delete,
+      message: `${I18n.tagDeleteConfirm}\n${I18n.tagDeleteKeepNoteHint}`,
+      primaryButton: { value: I18n.cancel, action: () => {} },
+      secondaryButton: {
+        value: I18n.delete,
+        fontColor: '#B3261E',
+        action: () => { this.deleteTag(tag); }
+      }
+    });
+  }
+
+  private deleteTag(tag: Tag): void {
+    tagRepo.delete(tag.id)
+      .then(() => { return this.refreshFromStore(); })
+      .catch((e: Error) => { console.error(`[joplin-hap] delete tag: ${e.message}`); });
+  }
+
+  @Builder
+  tagContextMenu(tag: Tag) {
+    Menu() {
+      MenuItem({ content: I18n.renameTag })
+        .onClick(() => { this.startRename(tag); })
+      MenuItem({ content: I18n.delete })
+        .onClick(() => { this.confirmDelete(tag); })
+    }
   }
 
   build() {
@@ -28,6 +132,20 @@ struct TagList {
           .fontSize(18)
           .fontWeight(FontWeight.Medium)
           .margin({ left: 12 })
+        Blank()
+        Button(`+ ${I18n.tagsTitle}`)
+          .height(32)
+          .fontSize(13)
+          .backgroundColor('#EEF1F5')
+          .fontColor('#1F58B8')
+          .onClick(() => { this.showCreate = true; })
+        Button(I18n.refresh)
+          .height(32)
+          .fontSize(13)
+          .backgroundColor('#EEF1F5')
+          .fontColor('#1F58B8')
+          .margin({ left: 8 })
+          .onClick(() => { this.refreshFromStore(); })
       }
       .width('100%')
       .padding(12)
@@ -54,6 +172,7 @@ struct TagList {
                 .padding(16)
                 .width('100%')
             }
+            .bindMenu(this.tagContextMenu(t))
             .onClick(() => {
               router.pushUrl({ url: 'pages/NoteList', params: new TagRouteParams(t.id, t.title) })
                 .catch((e: Error) => { console.error(`[joplin-hap] nav note list: ${e.message}`); });
@@ -68,5 +187,67 @@ struct TagList {
     .width('100%')
     .height('100%')
     .backgroundColor('#FFFFFF')
+    .bindContentCover($$this.showRename, this.renameDialog())
+    .bindContentCover($$this.showCreate, this.createDialog())
+  }
+
+  @Builder
+  renameDialog() {
+    Column() {
+      Text(I18n.renameTag)
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .width('100%')
+        .margin({ bottom: 12 })
+      TextInput({ placeholder: I18n.tagRenameHint, text: this.renameTitle })
+        .width('100%')
+        .onChange((v: string) => { this.renameTitle = v; })
+      Row() {
+        Button(I18n.cancel)
+          .layoutWeight(1)
+          .backgroundColor('#EEF1F5')
+          .fontColor('#1F58B8')
+          .onClick(() => { this.showRename = false; })
+        Button(I18n.confirm)
+          .layoutWeight(1)
+          .onClick(() => { this.doRename(); })
+      }
+      .width('100%')
+      .margin({ top: 16 })
+    }
+    .padding(20)
+    .backgroundColor('#FFFFFF')
+    .borderRadius(12)
+    .width('80%')
+  }
+
+  @Builder
+  createDialog() {
+    Column() {
+      Text(I18n.attachTag)
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .width('100%')
+        .margin({ bottom: 12 })
+      TextInput({ placeholder: I18n.attachTagHint, text: this.newTagName })
+        .width('100%')
+        .onChange((v: string) => { this.newTagName = v; })
+      Row() {
+        Button(I18n.cancel)
+          .layoutWeight(1)
+          .backgroundColor('#EEF1F5')
+          .fontColor('#1F58B8')
+          .onClick(() => { this.showCreate = false; })
+        Button(I18n.confirm)
+          .layoutWeight(1)
+          .onClick(() => { this.createTag(); })
+      }
+      .width('100%')
+      .margin({ top: 16 })
+    }
+    .padding(20)
+    .backgroundColor('#FFFFFF')
+    .borderRadius(12)
+    .width('80%')
   }
 }
