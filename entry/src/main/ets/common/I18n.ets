@@ -140,6 +140,7 @@ export class I18n {
   static syncPulled(n: number): string { return `已下载 ${n} 项`; }
   static syncDeleted(n: number): string { return `已删除 ${n} 项`; }
   static syncFailed(reason: string): string { return `同步失败：${reason}`; }
+  static readonly syncNotConfigured: string = '请先在设置中配置同步服务器';
   static syncLoginFailed(reason: string): string { return `登录失败：${reason}`; }
 
   // 同步进度（由 Synchronizer 经 SyncProgress 上报，直接显示在设置页）

@@ -4,6 +4,7 @@ import { AppStore, appStore, TRASH_VIEW_ID } from '../viewmodel/AppStore';
 import { NoteRouteParams } from '../viewmodel/RouteParams';
 import { Folder, Note, Tag, newFolder, newNote } from '../core/models/Entities';
 import { folderRepo, noteRepo } from '../core/services/Repositories';
+import { SyncResult } from '../core/sync/Synchronizer';
 
 @Entry
 @Component
@@ -22,6 +23,7 @@ struct Index {
   @State deleteFolderId: string = '';
   @State deleteFolderName: string = '';
   @State deleteFolderNotesToo: boolean = false;
+  @State folderExpanded: boolean = true;
 
   aboutToAppear(): void {
     this.reload();
@@ -185,87 +187,92 @@ struct Index {
   @Builder
   sideBar() {
     Column() {
-      // 笔记本分组
-      Row() {
-        Text(I18n.notebooksTitle)
-          .fontSize(12)
-          .fontColor('#6B6B6B')
-          .layoutWeight(1)
-        Button('+')
-          .height(26)
-          .width(34)
-          .fontSize(15)
-          .backgroundColor('#EEF1F5')
-          .fontColor('#1F58B8')
-          .onClick(() => { this.openCreateFolder(); })
-        Button('×')
-          .height(26)
-          .width(34)
-          .fontSize(15)
-          .backgroundColor('#EEF1F5')
-          .fontColor('#6B6B6B')
-          .margin({ left: 4 })
-          .onClick(() => { this.showSidebar = false; })
-      }
-      .width('100%')
-      .padding({ left: 12, right: 8, top: 8, bottom: 4 })
-
-      List({ space: 2 }) {
-        ListItem() {
+      // ── 上半部分：可滚动 ──
+      Scroll() {
+        Column() {
+          // 全部笔记（置顶独立项）
           Row() {
+            Text('📄')
+              .fontSize(16)
+              .margin({ right: 10 })
             Text(I18n.notesTitle)
+              .fontSize(15)
               .layoutWeight(1)
-              .fontSize(14)
               .fontWeight(this.store.selectedFolderId === '' && this.store.selectedTagId === ''
                 ? FontWeight.Medium : FontWeight.Normal)
-            Text(`${this.store.totalNotes}`)
-              .fontSize(12)
-              .fontColor('#9A9A9A')
+              .fontColor(this.store.selectedFolderId === '' && this.store.selectedTagId === ''
+                ? '#1F58B8' : '#3C3C3C')
+            // 收起侧栏（明显按钮）
+            Button('×')
+              .height(26)
+              .width(34)
+              .fontSize(20)
+              .fontWeight(FontWeight.Bold)
+              .backgroundColor('#1F58B8')
+              .fontColor('#FFFFFF')
+              .margin({ right: 6 })
+              .onClick(() => { this.showSidebar = false; })
           }
-          .padding(10)
-          .backgroundColor(this.store.selectedFolderId === '' && this.store.selectedTagId === ''
-            ? '#E1ECFF' : Color.Transparent)
-          .borderRadius(8)
-          .onClick(() => { this.pickFolder(''); })
-        }
+          .width('100%')
+      .padding({ left: 14, right: 8, top: 4, bottom: 12 })
+      .backgroundColor(this.store.selectedFolderId === '' && this.store.selectedTagId === ''
+        ? '#E1ECFF' : Color.Transparent)
+      .onClick(() => { this.pickFolder(''); })
 
-        ForEach(this.store.folders, (folder: Folder) => {
-          ListItem() {
+          // 笔记本分组（可折叠）
+          Column() {
+            // 分组标题
             Row() {
               Text('📁')
-                .fontSize(14)
-                .margin({ right: 6 })
-              Text(folder.title === '' ? I18n.untitledNotebook : folder.title)
+                .fontSize(16)
+                .margin({ right: 10 })
+              Text(I18n.notebooksTitle)
+                .fontSize(15)
                 .layoutWeight(1)
-                .fontSize(14)
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-              // 笔记数（参照桌面端侧栏）
-              Text(`${this.store.folderNoteCounts[folder.id] ?? 0}`)
-                .fontSize(12)
+                .fontWeight(FontWeight.Medium)
+                .fontColor('#3C3C3C')
+              Text(this.folderExpanded ? '▼' : '▶')
+                .fontSize(11)
                 .fontColor('#9A9A9A')
-                .margin({ right: 4 })
-              if (this.store.selectedFolderId === folder.id) {
-                Text('•').fontColor('#1F58B8').fontSize(18)
-              }
             }
-            .padding(10)
-            .backgroundColor(this.store.selectedFolderId === folder.id ? '#E1ECFF' : Color.Transparent)
-            .borderRadius(8)
-            .onClick(() => { this.pickFolder(folder.id); })
-            .bindContextMenu(this.folderContextMenu(folder), ResponseType.LongPress)
-          }
-        }, (folder: Folder) => `${folder.id}-${folder.updatedTime}`)
+            .width('100%')
+            .padding({ left: 14, right: 12, top: 10, bottom: 10 })
+            .onClick(() => { this.folderExpanded = !this.folderExpanded })
 
-        // 回收站（虚拟视图：deleted_time>0 的笔记，不是同步下来的真实 folder）
-        ListItem() {
+            // 展开的笔记本列表
+            if (this.folderExpanded) {
+              ForEach(this.store.folders, (folder: Folder) => {
+                Row() {
+                  Blank().width(26)
+                  Text(folder.title === '' ? I18n.untitledNotebook : folder.title)
+                    .fontSize(14)
+                    .layoutWeight(1)
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .fontColor(this.store.selectedFolderId === folder.id ? '#1F58B8' : '#3C3C3C')
+                    .fontWeight(this.store.selectedFolderId === folder.id ? FontWeight.Medium : FontWeight.Normal)
+                  if (this.store.selectedFolderId === folder.id) {
+                    Text('•').fontColor('#1F58B8').fontSize(18)
+                  }
+                }
+                .width('100%')
+                .padding({ left: 14, right: 12, top: 8, bottom: 8 })
+                .backgroundColor(this.store.selectedFolderId === folder.id ? '#E1ECFF' : Color.Transparent)
+                .onClick(() => { this.pickFolder(folder.id); })
+                .bindContextMenu(this.folderContextMenu(folder), ResponseType.LongPress)
+              }, (folder: Folder) => `${folder.id}-${folder.updatedTime}`)
+            }
+          }
+          .width('100%')
+
+          // 回收站
           Row() {
             Text('🗑')
-              .fontSize(14)
-              .margin({ right: 6 })
+              .fontSize(16)
+              .margin({ right: 10 })
             Text(I18n.trashTitle)
+              .fontSize(15)
               .layoutWeight(1)
-              .fontSize(14)
               .fontColor(this.store.selectedFolderId === TRASH_VIEW_ID ? '#1F58B8' : '#3C3C3C')
             Text(`${this.store.trashCount}`)
               .fontSize(12)
@@ -275,61 +282,116 @@ struct Index {
               Text('•').fontColor('#1F58B8').fontSize(18)
             }
           }
-          .padding(10)
+          .width('100%')
+          .padding({ left: 14, right: 12, top: 12, bottom: 12 })
           .backgroundColor(this.store.selectedFolderId === TRASH_VIEW_ID ? '#E1ECFF' : Color.Transparent)
-          .borderRadius(8)
           .onClick(() => { this.pickTrash(); })
         }
+        .width('100%')
       }
-      .layoutWeight(3)
+      .layoutWeight(1)
       .width('100%')
-      .padding({ left: 6, right: 6 })
-      .listDirection(Axis.Vertical)
+      .align(Alignment.Top)
+      .scrollBar(BarState.Auto)
+      .padding({ top: 0 })
+
+      // ── 底部固定操作区 ──
+      Divider().color('#E1E4E8')
+
+      Column() {
+        // 新建笔记本
+        Row() {
+          Text('📁')
+            .fontSize(16)
+            .margin({ right: 10 })
+          Text(I18n.newNotebook)
+            .fontSize(14)
+            .fontColor('#3C3C3C')
+          Blank()
+        }
+        .width('100%')
+        .padding({ left: 14, right: 12, top: 10, bottom: 10 })
+        .onClick(() => { this.openCreateFolder(); })
+
+        // 标签
+        Row() {
+          Text('🏷')
+            .fontSize(16)
+            .margin({ right: 10 })
+          Text(I18n.tagsTitle)
+            .fontSize(14)
+            .fontColor('#3C3C3C')
+          Blank()
+        }
+        .width('100%')
+        .padding({ left: 14, right: 12, top: 10, bottom: 10 })
+        .onClick(() => {
+          router.pushUrl({ url: 'pages/TagList' })
+            .catch((e: Error) => { console.error(`[joplin-hap] nav tag list: ${e.message}`); });
+        })
+
+        // 设置
+        Row() {
+          Text('⚙')
+            .fontSize(16)
+            .margin({ right: 10 })
+          Text(I18n.tabSettings)
+            .fontSize(14)
+            .fontColor('#3C3C3C')
+          Blank()
+        }
+        .width('100%')
+        .padding({ left: 14, right: 12, top: 10, bottom: 10 })
+        .onClick(() => {
+          router.pushUrl({ url: 'pages/Settings' })
+            .catch((e: Error) => { console.error(`[joplin-hap] nav settings: ${e.message}`); });
+        })
+      }
+      .width('100%')
 
       Divider().color('#E1E4E8')
 
-      // 标签分组（点击「+」进入标签管理页，可新建/重命名/删除）
-      Row() {
-        Text(I18n.tagsTitle)
-          .fontSize(12)
-          .fontColor('#6B6B6B')
-          .layoutWeight(1)
-        Button('+')
-          .fontSize(13)
-          .fontColor('#1F58B8')
-          .backgroundColor('#EEF1F5')
-          .height(24)
-          .padding({ left: 10, right: 10 })
-          .onClick(() => {
-            router.pushUrl({ url: 'pages/TagList' })
-              .catch((e: Error) => { console.error(`[joplin-hap] nav tag list: ${e.message}`); });
-          })
-      }
-      .width('100%')
-      .padding({ left: 12, right: 8, top: 10, bottom: 4 })
-
-      List({ space: 2 }) {
-        ForEach(this.store.tags, (tag: Tag) => {
-          ListItem() {
-            Row() {
-              Text(`# ${tag.title}`)
-                .fontSize(13)
-                .fontColor(this.store.selectedTagId === tag.id ? '#1F58B8' : '#3C3C3C')
-                .layoutWeight(1)
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-            }
-            .padding({ left: 10, right: 10, top: 7, bottom: 7 })
-            .backgroundColor(this.store.selectedTagId === tag.id ? '#E1ECFF' : Color.Transparent)
-            .borderRadius(8)
-            .onClick(() => { this.pickTag(tag.id); })
+      // ── 同步区 ──
+      Column() {
+        Row() {
+          if (this.store.syncing) {
+            LoadingProgress()
+              .width(16)
+              .height(16)
+              .color('#1F58B8')
+              .margin({ right: 8 })
+          } else {
+            Text('🔄')
+              .fontSize(14)
+              .margin({ right: 8 })
           }
-        }, (tag: Tag) => `${tag.id}-${tag.updatedTime}`)
+          Text(this.store.syncing ? I18n.syncInProgress : I18n.syncNow)
+            .fontSize(13)
+            .fontColor(this.store.syncing ? '#1F58B8' : '#3C3C3C')
+            .layoutWeight(1)
+          Button(this.store.syncing ? '…' : '⟳')
+            .height(26)
+            .width(34)
+            .fontSize(15)
+            .backgroundColor(this.store.syncing ? '#C6D4EE' : '#1F58B8')
+            .fontColor('#FFFFFF')
+            .enabled(!this.store.syncing)
+            .onClick(() => { this.startSync(); })
+        }
+        .width('100%')
+
+        if (!this.store.syncing && this.store.syncMessage !== '' && this.store.syncMessage !== I18n.syncIdle) {
+          Text(this.store.syncMessage)
+            .fontSize(11)
+            .fontColor('#9A9A9A')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+            .margin({ top: 4, left: 24 })
+        }
       }
-      .layoutWeight(2)
       .width('100%')
-      .padding({ left: 6, right: 6, bottom: 8 })
-      .listDirection(Axis.Vertical)
+      .padding({ left: 14, right: 8, top: 10, bottom: 12 })
     }
     .width('42%')
     .height('100%')
@@ -597,6 +659,16 @@ struct Index {
     .alignItems(HorizontalAlign.Start)
     .padding(16)
     .width('100%')
+  }
+
+  // 侧边栏底部「立即同步」：执行一轮完整同步，过程中通过 revision 刷新侧栏状态。
+  private startSync(): void {
+    this.store.runSync(() => { this.revision += 1; })
+      .then((result: SyncResult) => {
+        if (!result.ok) {
+          console.warn(`[joplin-hap] sidebar sync failed: ${result.error}`);
+        }
+      });
   }
 
   private pickFolder(id: string): void {

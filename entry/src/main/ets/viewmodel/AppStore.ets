@@ -4,6 +4,7 @@
 import { I18n } from '../common/I18n';
 import { Folder, Note, Tag } from '../core/models/Entities';
 import { folderRepo, noteRepo, settingsRepo, tagRepo } from '../core/services/Repositories';
+import { SyncProgress, SyncResult, Synchronizer } from '../core/sync/Synchronizer';
 
 // Settings keys, mirroring the names Joplin uses for the same concepts.
 export const KEY_SYNC_URL = 'sync.9.path';
@@ -24,7 +25,7 @@ export class AppStore {
   selectedTagId: string = '';
   selectedNoteId: string = '';
   syncing: boolean = false;
-  syncMessage: string = 'Ready';
+  syncMessage: string = '';
   syncPushed: number = 0;
   syncPulled: number = 0;
   syncDeleted: number = 0;
@@ -156,6 +157,65 @@ export class AppStore {
   // recovering from a long disconnect.
   async resetSyncCursor(): Promise<void> {
     await settingsRepo.set(KEY_SYNC_CURSOR, '');
+  }
+
+  // 执行一轮完整同步（上传 → 上报删除 → 拉取 delta），进度与结果写入
+  // syncing / syncMessage / syncPushed / syncPulled / syncDeleted，
+  // 供侧边栏底部与设置页共用。onUpdate 在每次状态变化时回调，供页面刷新。
+  // 该方法不会 reject——失败也会以 ok=false 的 SyncResult 返回。
+  async runSync(onUpdate: () => void = () => {}): Promise<SyncResult> {
+    const notify: () => void = () => { onUpdate(); };
+    const result: SyncResult = new SyncResult();
+    if (this.syncing) {
+      return result;
+    }
+    this.syncing = true;
+    this.syncMessage = I18n.syncConnecting;
+    this.syncPushed = 0;
+    this.syncPulled = 0;
+    this.syncDeleted = 0;
+    notify();
+    try {
+      await this.loadSyncConfig();
+      if (this.syncUrl.trim() === '' || this.syncUser.trim() === '' || this.syncPassword === '') {
+        result.ok = false;
+        result.error = I18n.syncNotConfigured;
+        this.syncMessage = result.error;
+        return result;
+      }
+      const sync: Synchronizer =
+        new Synchronizer(this.syncUrl.trim(), this.syncUser.trim(), this.syncPassword);
+      sync.onProgress((p: SyncProgress) => {
+        this.syncMessage = p.message;
+        this.syncPushed = p.pushed;
+        this.syncPulled = p.pulled;
+        this.syncDeleted = p.deleted;
+        notify();
+      });
+      const r: SyncResult = await sync.run();
+      result.ok = r.ok;
+      result.pushed = r.pushed;
+      result.pulled = r.pulled;
+      result.deleted = r.deleted;
+      result.error = r.error;
+      result.durationMs = r.durationMs;
+      this.syncMessage = result.ok
+        ? `${I18n.syncComplete} · ${I18n.syncPushed(result.pushed)} · ` +
+          `${I18n.syncPulled(result.pulled)} · ${I18n.syncDeleted(result.deleted)}`
+        : I18n.syncFailed(result.error);
+      if (result.ok) {
+        await this.refreshAll();
+      }
+      return result;
+    } catch (e) {
+      result.ok = false;
+      result.error = (e as Error).message;
+      this.syncMessage = I18n.syncFailed(result.error);
+      return result;
+    } finally {
+      this.syncing = false;
+      notify();
+    }
   }
 
   syncUrl: string = '';

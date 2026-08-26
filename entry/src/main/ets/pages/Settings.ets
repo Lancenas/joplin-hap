@@ -1,7 +1,7 @@
 import router from '@ohos.router';
 import { I18n } from '../common/I18n';
 import { appStore } from '../viewmodel/AppStore';
-import { SyncProgress, SyncResult, Synchronizer } from '../core/sync/Synchronizer';
+import { SyncResult } from '../core/sync/Synchronizer';
 
 @Entry
 @Component
@@ -149,12 +149,11 @@ struct Settings {
       return;
     }
     this.syncing = true;
-    this.message = '正在连接…';
+    this.message = I18n.syncConnecting;
     appStore.saveSyncConfig(this.serverUrl.trim(), this.email.trim(), this.password)
       .then(() => {
-        const sync = new Synchronizer(this.serverUrl.trim(), this.email.trim(), this.password);
-        sync.onProgress((p: SyncProgress) => { this.message = p.message; });
-        return sync.run();
+        // 共享 AppStore.runSync：进度/结果会同时驱动侧边栏底部的同步状态。
+        return appStore.runSync(() => { this.message = appStore.syncMessage; });
       })
       .then((result: SyncResult) => {
         this.syncing = false;
@@ -162,9 +161,6 @@ struct Settings {
           this.message =
             `已上传 ${result.pushed} 项 · 已下载 ${result.pulled} 项 · ` +
             `已删除 ${result.deleted} 项（${result.durationMs} 毫秒）`;
-          appStore.refreshAll().catch((e: Error) => {
-            console.error(`[joplin-hap] refresh after sync: ${e.message}`);
-          });
         } else {
           this.message = I18n.syncFailed(result.error ?? '');
         }

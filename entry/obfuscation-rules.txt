@@ -1,0 +1,12 @@
+# Obfuscation rule file for the entry module.
+# Obfuscation is currently DISABLED (arkOptions.obfuscation.ruleOptions.enable = false
+# in entry/build-profile.json5), so this file is only required to exist for the
+# release build to pass. hvigor validates the referenced path even when enable=false.
+#
+# When you later want to enable obfuscation, uncomment / add keep rules below so that
+# reflection, SQLite column names, and serialized field names (Joplin item contract)
+# are not mangled at runtime.
+#
+# -keep-property-name
+# -keep-global-name
+# -keep-file-name
